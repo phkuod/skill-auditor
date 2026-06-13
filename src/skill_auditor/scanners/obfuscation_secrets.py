@@ -9,8 +9,8 @@ from skill_auditor.inventory import SkillFile
 from skill_auditor.models import Finding, Severity, Source
 
 # Zero-width space (U+200B), zero-width non-joiner (U+200C), zero-width joiner (U+200D),
-# and byte-order mark / zero-width no-break space (U+FEFF).
-ZERO_WIDTH = re.compile("[\u200b\u200c\u200d\ufeff]")
+# word joiner (U+2060), and byte-order mark / zero-width no-break space (U+FEFF).
+ZERO_WIDTH = re.compile("[\u200b\u200c\u200d\u2060\ufeff]")
 B64_EXEC = re.compile(r"(b64decode|b16decode|unhexlify|decode\([\"']hex)", re.I)
 SECRET_RULES = [
     ("OB-SECRET-AWS-001", re.compile(r"AKIA[0-9A-Z]{16}"), "Hardcoded AWS access key id"),
