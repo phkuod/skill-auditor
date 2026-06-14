@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" font-family="'Microsoft JhengHei','Segoe UI',sans-serif">
+  <defs>
+    <marker id="arrL" markerWidth="12" markerHeight="12" refX="5" refY="5" orient="auto">
+      <path d="M1,1 L9,5 L1,9 Z" fill="#8AA0BC"/>
+    </marker>
+    <filter id="sh" x="-5%" y="-5%" width="110%" height="115%">
+      <feDropShadow dx="0" dy="2" stdDeviation="6" flood-color="#1E2A3A" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+
+  <!-- background -->
+  <rect width="1920" height="1080" fill="#F4F7FB"/>
+  <rect x="0" y="0" width="12" height="1080" fill="#0E9E80"/>
+
+  <!-- header -->
+  <text x="56" y="68" fill="#1E2A3A" font-size="36" font-weight="700">系統架構　System Architecture</text>
+  <text x="56" y="104" fill="#5C6B82" font-size="17">skill-auditor　·　靜態優先 + 抗注入 LLM　·　絕不執行被稽核 skill 的程式碼</text>
+
+  <!-- ===================== LEFT COLUMN (stack) ===================== -->
+
+  <!-- INPUT -->
+  <rect x="436" y="140" width="520" height="58" rx="11" fill="#EEF3FA" stroke="#D8E1EE" filter="url(#sh)"/>
+  <text x="696" y="176" fill="#33455C" font-size="16" text-anchor="middle">下載的 Skill：SKILL.md · 腳本 · assets　（唯讀載入，不執行）</text>
+  <line x1="696" y1="198" x2="696" y2="234" stroke="#B7C4D6" stroke-width="2.5" marker-end="url(#arrL)"/>
+
+  <!-- ADAPTERS -->
+  <rect x="56" y="236" width="1280" height="128" rx="14" fill="#FFFFFF" stroke="#7A45D8" stroke-width="1.6" filter="url(#sh)"/>
+  <text x="80" y="266" fill="#7A45D8" font-size="15" font-weight="700" letter-spacing="2">轉接層　ADAPTERS</text>
+  <rect x="96" y="280" width="580" height="64" rx="10" fill="#F6F2FD" stroke="#E3D6F7"/>
+  <text x="118" y="308" fill="#1E2A3A" font-size="16" font-weight="700">CLI　<tspan font-family="Consolas,monospace" fill="#5C6B82" font-weight="400">python -m skill_auditor</tspan></text>
+  <text x="118" y="331" fill="#5C6B82" font-size="13" font-family="Consolas,monospace">--no-llm · --json · --fail-on · exit 0/1/2</text>
+  <rect x="716" y="280" width="580" height="64" rx="10" fill="#F6F2FD" stroke="#E3D6F7"/>
+  <text x="738" y="308" fill="#1E2A3A" font-size="16" font-weight="700">Web API　<tspan fill="#5C6B82" font-weight="400">FastAPI</tspan></text>
+  <text x="738" y="331" fill="#5C6B82" font-size="13" font-family="Consolas,monospace">POST /audit · GET /rules · /health · zip-slip 防護</text>
+  <line x1="696" y1="364" x2="696" y2="400" stroke="#B7C4D6" stroke-width="2.5" marker-end="url(#arrL)"/>
+
+  <!-- ENGINE -->
+  <rect x="56" y="404" width="1280" height="96" rx="14" fill="#FFFFFF" stroke="#2E6FE0" stroke-width="1.6" filter="url(#sh)"/>
+  <text x="80" y="434" fill="#2E6FE0" font-size="15" font-weight="700" letter-spacing="2">編排層　ENGINE</text>
+  <text x="696" y="460" fill="#1E2A3A" font-size="22" font-weight="700" text-anchor="middle" font-family="Consolas,monospace">engine.audit_skill(path, use_llm, agent)</text>
+  <text x="696" y="486" fill="#5C6B82" font-size="14.5" text-anchor="middle">編排：inventory → 靜態掃描 → 可選 LLM → 報告　·　優雅降級</text>
+  <line x1="696" y1="500" x2="696" y2="536" stroke="#B7C4D6" stroke-width="2.5" marker-end="url(#arrL)"/>
+
+  <!-- CORE -->
+  <rect x="56" y="540" width="1280" height="232" rx="14" fill="#EFF7F4" stroke="#0E9E80" stroke-width="1.6" filter="url(#sh)"/>
+  <text x="80" y="570" fill="#0B7E66" font-size="15" font-weight="700" letter-spacing="2">核心層　CORE　·　掃描器統一介面 scan(files) → Finding[]</text>
+
+  <!-- core col: inventory -->
+  <rect x="72" y="584" width="288" height="170" rx="10" fill="#FFFFFF" stroke="#0E9E80" stroke-width="1.3"/>
+  <text x="92" y="614" fill="#0B7E66" font-size="16" font-weight="700" font-family="Consolas,monospace">inventory</text>
+  <text x="92" y="643" fill="#33455C" font-size="14">走訪 + 分類</text>
+  <text x="92" y="667" fill="#5C6B82" font-size="13.5">唯讀，不執行任何檔</text>
+  <text x="92" y="695" fill="#5C6B82" font-size="13.5" font-family="Consolas,monospace">→ SkillFile[]</text>
+
+  <!-- core col: scanners -->
+  <rect x="392" y="584" width="288" height="170" rx="10" fill="#FFFFFF" stroke="#0E9E80" stroke-width="1.3"/>
+  <text x="412" y="614" fill="#0B7E66" font-size="16" font-weight="700" font-family="Consolas,monospace">scanners + RULES</text>
+  <text x="412" y="641" fill="#33455C" font-size="13.5" font-family="Consolas,monospace">python_ast · shell</text>
+  <text x="412" y="663" fill="#33455C" font-size="13.5" font-family="Consolas,monospace">markdown_injection</text>
+  <text x="412" y="685" fill="#33455C" font-size="13.5" font-family="Consolas,monospace">frontmatter</text>
+  <text x="412" y="707" fill="#33455C" font-size="13.5" font-family="Consolas,monospace">obfuscation_secrets</text>
+  <text x="412" y="733" fill="#5C6B82" font-size="13.5">run_all() · 31 條規則</text>
+
+  <!-- core col: llm -->
+  <rect x="712" y="584" width="288" height="170" rx="10" fill="#FFFFFF" stroke="#2E6FE0" stroke-width="1.3"/>
+  <text x="732" y="614" fill="#2E6FE0" font-size="16" font-weight="700" font-family="Consolas,monospace">llm（可選）</text>
+  <text x="732" y="643" fill="#33455C" font-size="13.5">agent.py — 抗注入</text>
+  <text x="732" y="667" fill="#33455C" font-size="13.5" font-family="Consolas,monospace">stages.semantic_scan</text>
+  <text x="732" y="691" fill="#5C6B82" font-size="13.5">FallbackModel</text>
+  <text x="732" y="713" fill="#5C6B82" font-size="13.5">免費模型 · 可降級</text>
+
+  <!-- core col: report -->
+  <rect x="1032" y="584" width="288" height="170" rx="10" fill="#FFFFFF" stroke="#7A45D8" stroke-width="1.3"/>
+  <text x="1052" y="614" fill="#7A45D8" font-size="16" font-weight="700" font-family="Consolas,monospace">report</text>
+  <text x="1052" y="643" fill="#33455C" font-size="13.5" font-family="Consolas,monospace">compute_verdict</text>
+  <text x="1052" y="667" fill="#33455C" font-size="13.5">counts · exit code</text>
+  <text x="1052" y="691" fill="#5C6B82" font-size="13.5">rich / json 渲染</text>
+  <line x1="696" y1="772" x2="696" y2="808" stroke="#B7C4D6" stroke-width="2.5" marker-end="url(#arrL)"/>
+
+  <!-- SHARED -->
+  <rect x="56" y="812" width="1280" height="84" rx="14" fill="#FFFFFF" stroke="#90A0B5" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="80" y="841" fill="#5C6B82" font-size="15" font-weight="700" letter-spacing="2">共用　SHARED</text>
+  <text x="80" y="872" fill="#33455C" font-size="15"><tspan font-family="Consolas,monospace" fill="#1E2A3A" font-weight="700">models.py</tspan>　Severity · Source · Finding · AuditReport　　　<tspan font-family="Consolas,monospace" fill="#1E2A3A" font-weight="700">config.py</tspan>　.env · FREE_MODELS · 可選 key</text>
+  <line x1="696" y1="896" x2="696" y2="932" stroke="#B7C4D6" stroke-width="2.5" marker-end="url(#arrL)"/>
+
+  <!-- OUTPUT -->
+  <rect x="416" y="936" width="560" height="62" rx="11" fill="#E7F7F1" stroke="#0E9E80" stroke-width="1.6" filter="url(#sh)"/>
+  <text x="696" y="974" fill="#1E2A3A" font-size="17" text-anchor="middle"><tspan font-family="Consolas,monospace" fill="#0B7E66" font-weight="700">AuditReport</tspan>　verdict: block / warn / pass　·　exit 2 / 1 / 0</text>
+
+  <!-- ===================== RIGHT COLUMN (annotations) ===================== -->
+
+  <!-- Pipeline -->
+  <rect x="1364" y="140" width="500" height="252" rx="14" fill="#FFFFFF" stroke="#D8E1EE" filter="url(#sh)"/>
+  <rect x="1364" y="140" width="7" height="252" rx="3" fill="#0E9E80"/>
+  <text x="1396" y="174" fill="#1E2A3A" font-size="18" font-weight="700">資料流　Pipeline</text>
+  <circle cx="1410" cy="210" r="12" fill="#0E9E80"/><text x="1410" y="215" fill="#FFFFFF" font-size="14" font-weight="700" text-anchor="middle">1</text>
+  <text x="1434" y="215" fill="#33455C" font-size="14.5">inventory → SkillFile[]</text>
+  <circle cx="1410" cy="248" r="12" fill="#0E9E80"/><text x="1410" y="253" fill="#FFFFFF" font-size="14" font-weight="700" text-anchor="middle">2</text>
+  <text x="1434" y="253" fill="#33455C" font-size="14.5">static run_all → Finding[]　<tspan fill="#0B7E66" font-weight="700">永遠執行</tspan></text>
+  <circle cx="1410" cy="286" r="12" fill="#2E6FE0"/><text x="1410" y="291" fill="#FFFFFF" font-size="14" font-weight="700" text-anchor="middle">3</text>
+  <text x="1434" y="291" fill="#33455C" font-size="14.5">LLM semantic_scan　<tspan fill="#2E6FE0" font-weight="700">可選 / 降級</tspan></text>
+  <circle cx="1410" cy="324" r="12" fill="#7A45D8"/><text x="1410" y="329" fill="#FFFFFF" font-size="14" font-weight="700" text-anchor="middle">4</text>
+  <text x="1434" y="329" fill="#33455C" font-size="14.5">build_report → verdict</text>
+  <text x="1396" y="366" fill="#90A0B5" font-size="13">靜態骨幹確定性、可離線、CI 友善。</text>
+
+  <!-- Safety invariants -->
+  <rect x="1364" y="408" width="500" height="296" rx="14" fill="#FFFFFF" stroke="#D8E1EE" filter="url(#sh)"/>
+  <rect x="1364" y="408" width="7" height="296" rx="3" fill="#C77A0A"/>
+  <text x="1396" y="442" fill="#1E2A3A" font-size="18" font-weight="700">安全不變式　Safety</text>
+  <circle cx="1414" cy="478" r="14" fill="#0E9E80"/><text x="1414" y="483" fill="#FFFFFF" font-size="15" font-weight="700" text-anchor="middle">A</text>
+  <text x="1440" y="476" fill="#1E2A3A" font-size="15" font-weight="700">絕不執行被稽核程式碼</text>
+  <text x="1440" y="500" fill="#5C6B82" font-size="13.5" font-family="Consolas,monospace">read_text · ast.parse · regex</text>
+  <text x="1440" y="521" fill="#5C6B82" font-size="13.5" font-family="Consolas,monospace">yaml.safe_load · 安全解壓</text>
+  <circle cx="1414" cy="566" r="14" fill="#2E6FE0"/><text x="1414" y="571" fill="#FFFFFF" font-size="15" font-weight="700" text-anchor="middle">B</text>
+  <text x="1440" y="564" fill="#1E2A3A" font-size="15" font-weight="700">稽核器不可被劫持</text>
+  <text x="1440" y="587" fill="#5C6B82" font-size="13.5">skill 文字＝不可信資料</text>
+  <text x="1440" y="608" fill="#5C6B82" font-size="13.5">LLM 無行動工具、只吐 Finding[]</text>
+  <text x="1440" y="629" fill="#5C6B82" font-size="13.5">靜態層兜底偵測注入</text>
+  <text x="1396" y="668" fill="#0B7E66" font-size="13.5">即使 LLM 被騙，靜態層仍標記注入（有測試）。</text>
+
+  <!-- Graceful degrade -->
+  <rect x="1364" y="720" width="500" height="232" rx="14" fill="#FFFFFF" stroke="#D8E1EE" filter="url(#sh)"/>
+  <rect x="1364" y="720" width="7" height="232" rx="3" fill="#2E6FE0"/>
+  <text x="1396" y="754" fill="#1E2A3A" font-size="18" font-weight="700">優雅降級　Degrade</text>
+  <text x="1396" y="788" fill="#33455C" font-size="14"><tspan fill="#1E2A3A" font-weight="700">無 API key</tspan>　→ build_model() = None</text>
+  <text x="1396" y="816" fill="#33455C" font-size="14"><tspan fill="#1E2A3A" font-weight="700">模型全失敗 429/503</tspan>　→ semantic_scan = []</text>
+  <line x1="1614" y1="830" x2="1614" y2="856" stroke="#B7C4D6" stroke-width="2.5" marker-end="url(#arrL)"/>
+  <rect x="1396" y="862" width="436" height="64" rx="9" fill="#E7F7F1" stroke="#0E9E80"/>
+  <text x="1614" y="888" fill="#0B7E66" font-size="14.5" font-weight="700" text-anchor="middle">靜態骨幹仍完整、報告照常產出</text>
+  <text x="1614" y="910" fill="#5C6B82" font-size="13" text-anchor="middle" font-family="Consolas,monospace">llm_used=False · notes 註記</text>
+
+  <!-- footer -->
+  <text x="56" y="1044" fill="#90A0B5" font-size="13.5">相依方向：adapters → engine → {inventory · scanners · llm · report} → models　|　無向上相依、無循環　|　新增掃描器＝新增模組 + 在 run_all / RULES 登錄</text>
+</svg>
