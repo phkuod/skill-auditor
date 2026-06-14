@@ -46,6 +46,10 @@
 
 ## 3. 系統架構（分層與相依）
 
+![skill-auditor 系統架構圖](architecture-diagram.svg)
+
+> 圖檔：`docs/architecture-diagram.svg`（向量，可縮放編輯）· `docs/architecture-diagram.png`（點陣，方便預覽）
+
 ```
         ADAPTERS（薄 I/O 轉接層）
         ┌──────────────┐        ┌──────────────────────────────┐
