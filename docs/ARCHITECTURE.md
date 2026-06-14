@@ -338,3 +338,125 @@ python -m skill_auditor <skill 路徑> [--no-llm] [--json] [--fail-on critical|h
 2. 在 `scanners/__init__.py` 的 `SCANNERS` 清單加入該模組，並於 `_build_rules_catalog()` 登錄其 `rule_id`。
 3. 在 `tests/` 加 `test_scanner_my_scanner.py`：對 `malicious_skill` 觸發、對 `clean_skill` 靜默、驗 `file:line`/`rule_id`/`severity`。
 4. 引擎與報告無需改動 — `run_all` 自動納入新掃描器的 findings。
+
+---
+
+## 附錄 A：Mermaid 圖（GitHub 可直接渲染）
+
+### A.1 執行流程（control + data flow）
+
+```mermaid
+flowchart TD
+    A["skill 目錄 / .zip"] --> B{"轉接層<br/>cli.py / api.py"}
+    B -->|"解析參數 / 安全解壓"| C["engine.audit_skill(path, use_llm, agent)"]
+    C --> D["inventory_skill(dir)<br/>唯讀走訪 + 分類<br/>→ list of SkillFile"]
+    D --> E["scanners.run_all(files)<br/>確定性骨幹（永遠執行）<br/>→ Finding[] source=static"]
+    E --> F{"use_llm?"}
+    F -->|"否"| K["build_report(...)"]
+    F -->|"是"| G{"agent 可用?"}
+    G -->|"否（無 key）"| H["note: LLM skipped<br/>llm_used=False"]
+    H --> K
+    G -->|"是"| I["semantic_scan(agent, files)<br/>skill 文字包進 &lt;skill_file&gt; 當不可信資料<br/>run_sync → Finding[] source=llm<br/>任一模型錯誤 → 回 []"]
+    I --> J{"有 findings?"}
+    J -->|"是"| L["extend findings<br/>llm_used=True"]
+    L --> K
+    J -->|"否 / 失敗"| M["note: 降級靜態<br/>llm_used=False"]
+    M --> K
+    K --> N["compute_verdict<br/>任一 CRITICAL→block<br/>否則任一 HIGH→warn<br/>否則 pass"]
+    N --> O["AuditReport"]
+    O --> P["render_report rich /<br/>JSON / exit code 0·1·2"]
+
+    classDef static fill:#e6f4ea,stroke:#34a853,color:#000;
+    classDef llm fill:#e8f0fe,stroke:#4285f4,color:#000;
+    classDef out fill:#fff4e5,stroke:#f9ab00,color:#000;
+    class D,E static;
+    class I,L,M llm;
+    class N,O,P out;
+```
+
+### A.2 系統架構（分層與相依）
+
+```mermaid
+flowchart TB
+    subgraph ADP["轉接層 Adapters（薄 I/O）"]
+        CLI["cli.py / __main__.py<br/>argparse"]
+        API["api.py FastAPI<br/>/audit · /rules · /health<br/>zip-slip 防護"]
+    end
+    subgraph ENG["編排層 Engine"]
+        E["engine.audit_skill()<br/>編排 + 優雅降級"]
+    end
+    subgraph CORE["核心層 Core"]
+        INV["inventory.py<br/>走訪+分類（唯讀）"]
+        SC["scanners/<br/>run_all + RULES<br/>python_ast · shell<br/>markdown_injection<br/>frontmatter · obfuscation_secrets"]
+        LLM["llm/<br/>agent.py 抗注入<br/>stages.py semantic_scan<br/>FallbackModel / free models"]
+        REP["report.py<br/>verdict / counts / exit / render"]
+    end
+    MOD["models.py<br/>Severity · Source<br/>Finding · AuditReport"]
+    CFG["config.py<br/>.env · FREE_MODELS · 可選 key"]
+
+    CLI --> E
+    API --> E
+    E --> INV
+    E --> SC
+    E --> LLM
+    E --> REP
+    INV --> MOD
+    SC --> MOD
+    LLM --> MOD
+    REP --> MOD
+    LLM --> CFG
+
+    classDef adp fill:#fce8e6,stroke:#ea4335,color:#000;
+    classDef core fill:#e6f4ea,stroke:#34a853,color:#000;
+    classDef shared fill:#f3e8fd,stroke:#a142f4,color:#000;
+    class CLI,API adp;
+    class INV,SC,LLM,REP core;
+    class MOD,CFG shared;
+```
+
+### A.3 稽核呼叫時序（sequence）
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant CLI as cli.py / api.py
+    participant ENG as engine.audit_skill
+    participant INV as inventory
+    participant SCN as scanners.run_all
+    participant LLM as llm.semantic_scan
+    participant REP as report
+
+    User->>CLI: skill 路徑 / zip
+    CLI->>ENG: audit_skill(path, use_llm)
+    ENG->>INV: inventory_skill(dir)
+    INV-->>ENG: list of SkillFile（唯讀，不執行）
+    ENG->>SCN: run_all(files)
+    SCN-->>ENG: Finding[]（static，永遠執行）
+    alt use_llm 且 agent 可用
+        ENG->>LLM: semantic_scan(agent, files)
+        alt 模型成功
+            LLM-->>ENG: Finding[]（llm）
+        else 模型全失敗 / 無 key
+            LLM-->>ENG: 回 []（降級，加 note）
+        end
+    end
+    ENG->>REP: build_report(findings)
+    REP-->>ENG: AuditReport（verdict + counts）
+    ENG-->>CLI: AuditReport
+    CLI-->>User: 報告 + exit code（0/1/2）
+```
+
+### A.4 verdict 判定狀態
+
+```mermaid
+stateDiagram-v2
+    [*] --> 蒐集findings
+    蒐集findings --> 判定
+    判定 --> block: 任一 CRITICAL
+    判定 --> warn: 無 CRITICAL 但有 HIGH
+    判定 --> pass: 皆無
+    block --> [*]: exit 2
+    warn --> [*]: exit 1
+    pass --> [*]: exit 0
+```
+
