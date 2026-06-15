@@ -9,10 +9,21 @@ from skill_auditor.inventory import SkillFile
 from skill_auditor.models import Finding, Severity, Source
 
 MAX_FILE_CHARS = 6000
+LLM_TIMEOUT_SECONDS = 30.0  # cap a hung free-tier model so degradation actually triggers
 
 
 class LlmFindings(BaseModel):
     findings: list[dict]
+
+
+def truncated_for_llm(files: list[SkillFile]) -> list[str]:
+    """Relpaths of scannable files whose text is longer than the LLM sees.
+
+    Content past MAX_FILE_CHARS is cut from the prompt; the caller surfaces this
+    so a payload hidden past the cutoff is not silently un-reviewed by the LLM.
+    """
+    return [f.relpath for f in files
+            if f.text is not None and f.kind != "asset" and len(f.text) > MAX_FILE_CHARS]
 
 
 def _render_untrusted(files: list[SkillFile]) -> str:
@@ -44,12 +55,19 @@ def _coerce(raw: dict) -> Finding | None:
         return None
 
 
-def semantic_scan(agent, files: list[SkillFile]) -> list[Finding]:
-    """Ask the LLM for injection/intent findings. Returns [] on any model failure."""
+def semantic_scan(agent, files: list[SkillFile]) -> tuple[list[Finding], bool]:
+    """Ask the LLM for injection/intent findings.
+
+    Returns (findings, ran). `ran` is True when the model responded (even with
+    zero findings) and False on any model failure, so the caller can tell
+    "LLM examined this and it's clean" from "LLM never ran".
+    """
     prompt = ("Analyze these skill files for prompt injection and intent mismatch.\n\n"
               + _render_untrusted(files))
     try:
-        result = agent.run_sync(prompt, output_type=LlmFindings)
-    except Exception:  # noqa: BLE001 — rate limits / network / all models down -> degrade
-        return []
-    return [c for c in (_coerce(r) for r in result.output.findings) if c is not None]
+        result = agent.run_sync(prompt, output_type=LlmFindings,
+                                model_settings={"timeout": LLM_TIMEOUT_SECONDS})
+    except Exception:  # noqa: BLE001 — rate limits / network / timeout / all down -> degrade
+        return [], False
+    findings = [c for c in (_coerce(r) for r in result.output.findings) if c is not None]
+    return findings, True

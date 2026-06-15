@@ -4,12 +4,24 @@ from pathlib import Path
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 
-from skill_auditor.inventory import inventory_skill
+from skill_auditor.inventory import SkillFile, inventory_skill
 from skill_auditor.llm.agent import SYSTEM_PROMPT, build_audit_agent
-from skill_auditor.llm.stages import LlmFindings, semantic_scan
+from skill_auditor.llm.stages import (
+    MAX_FILE_CHARS,
+    LlmFindings,
+    semantic_scan,
+    truncated_for_llm,
+)
 from skill_auditor.models import Severity, Source
 
 INJ = Path(__file__).parent / "fixtures" / "injection_skill"
+
+
+def test_truncated_for_llm_lists_oversized_files():
+    big = SkillFile(path=Path("x"), relpath="big.md", kind="markdown",
+                    text="a" * (MAX_FILE_CHARS + 1))
+    small = SkillFile(path=Path("y"), relpath="ok.md", kind="markdown", text="a")
+    assert truncated_for_llm([big, small]) == ["big.md"]
 
 
 def test_system_prompt_frames_content_as_untrusted():
@@ -29,14 +41,29 @@ def test_semantic_scan_returns_findings_marked_llm():
         return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, payload.model_dump())])
 
     agent = build_audit_agent(model=FunctionModel(fn))
-    findings = semantic_scan(agent, inventory_skill(INJ))
+    findings, ran = semantic_scan(agent, inventory_skill(INJ))
+    assert ran is True
     assert findings and findings[0].source == Source.LLM
     assert findings[0].severity == Severity.CRITICAL
 
 
-def test_semantic_scan_swallows_model_errors_returns_empty():
+def test_semantic_scan_reports_not_ran_on_model_error():
     def boom(messages, info):
         raise RuntimeError("all models rate-limited")
 
     agent = build_audit_agent(model=FunctionModel(boom))
-    assert semantic_scan(agent, inventory_skill(INJ)) == []
+    findings, ran = semantic_scan(agent, inventory_skill(INJ))
+    assert findings == []
+    assert ran is False
+
+
+def test_semantic_scan_reports_ran_when_clean():
+    # Model succeeds but legitimately finds nothing -> ran is True (not a failure).
+    def clean(messages, info):
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name,
+                                                  LlmFindings(findings=[]).model_dump())])
+
+    agent = build_audit_agent(model=FunctionModel(clean))
+    findings, ran = semantic_scan(agent, inventory_skill(INJ))
+    assert findings == []
+    assert ran is True

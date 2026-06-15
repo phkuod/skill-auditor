@@ -7,7 +7,7 @@ from pathlib import Path
 
 from skill_auditor.inventory import inventory_skill
 from skill_auditor.llm.agent import build_audit_agent, build_model
-from skill_auditor.llm.stages import semantic_scan
+from skill_auditor.llm.stages import semantic_scan, truncated_for_llm
 from skill_auditor.models import AuditReport
 from skill_auditor.report import build_report
 from skill_auditor.scanners import run_all
@@ -30,12 +30,16 @@ def audit_skill(path: Path | str, *, use_llm: bool = True, agent=None) -> AuditR
         if agent is None:
             notes.append("LLM skipped: no OPENROUTER_API_KEY set (static-only).")
         else:
-            llm_findings = semantic_scan(agent, files)
-            if llm_findings:
+            llm_findings, llm_ran = semantic_scan(agent, files)
+            if llm_ran:
                 findings.extend(llm_findings)
                 llm_used = True
+                truncated = truncated_for_llm(files)
+                if truncated:
+                    notes.append("LLM saw truncated content for "
+                                 f"{len(truncated)} file(s) ({', '.join(truncated)}); "
+                                 "review them manually.")
             else:
-                # Either nothing found or models failed; mark as not used + note.
-                notes.append("LLM produced no findings or was unavailable (static-only backbone used).")
+                notes.append("LLM unavailable (all models failed); static-only backbone used.")
 
     return build_report(name, str(skill_dir), findings, llm_used=llm_used, notes=notes)

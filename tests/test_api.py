@@ -20,10 +20,23 @@ def test_rules_lists_known_ids():
     assert "PY-EXEC-001" in body["rules"]
 
 
-def test_audit_local_path_blocks_malicious():
+def test_audit_local_path_blocks_malicious(monkeypatch):
+    monkeypatch.setenv("SKILL_AUDITOR_ALLOWED_ROOT", str(FIX))
     r = client.post("/audit", json={"path": str(FIX / "malicious_skill"), "use_llm": False})
     assert r.status_code == 200
     assert r.json()["verdict"] == "block"
+
+
+def test_path_outside_allowed_root_is_forbidden(monkeypatch, tmp_path):
+    monkeypatch.setenv("SKILL_AUDITOR_ALLOWED_ROOT", str(FIX))
+    r = client.post("/audit", json={"path": str(tmp_path), "use_llm": False})
+    assert r.status_code == 403
+
+
+def test_path_mode_disabled_without_allowed_root(monkeypatch):
+    monkeypatch.delenv("SKILL_AUDITOR_ALLOWED_ROOT", raising=False)
+    r = client.post("/audit", json={"path": str(FIX / "malicious_skill"), "use_llm": False})
+    assert r.status_code == 403
 
 
 def _zip_of(dir_path: Path) -> bytes:

@@ -6,6 +6,7 @@ from __future__ import annotations
 from skill_auditor.inventory import SkillFile
 from skill_auditor.models import Finding
 from skill_auditor.scanners import (
+    coverage,
     frontmatter,
     markdown_injection,
     obfuscation_secrets,
@@ -13,7 +14,7 @@ from skill_auditor.scanners import (
     shell,
 )
 
-SCANNERS = [python_ast, shell, markdown_injection, frontmatter, obfuscation_secrets]
+SCANNERS = [python_ast, shell, markdown_injection, frontmatter, obfuscation_secrets, coverage]
 
 
 def run_all(files: list[SkillFile]) -> list[Finding]:
@@ -53,6 +54,9 @@ def _build_rules_catalog() -> dict[str, dict]:
                                  "description": "Encoded payload decode"}
     for rid, _rx, title in obfuscation_secrets.SECRET_RULES:
         catalog[rid] = {"category": "SECRETS", "severity": "high", "description": title}
+    # coverage
+    catalog[coverage.RULE_ID] = {"category": coverage.CATEGORY, "severity": "medium",
+                                 "description": "File could not be fully audited (skipped/too large)"}
     return catalog
 
 

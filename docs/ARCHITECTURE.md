@@ -1,7 +1,7 @@
 # skill-auditor — 完整設計與架構（Design & Architecture）
 
 **版本**：v1（已實作，已合併 master）
-**狀態**：49 tests pass · coverage 92% · 安全不變式（never executes audited code）已由最終審查確認
+**狀態**：70 tests pass · coverage 94% · 安全不變式（never executes audited code）已由最終審查確認
 **相關文件**：設計規格 `docs/superpowers/specs/2026-06-13-skill-auditor-design.md`、實作計畫 `docs/superpowers/plans/2026-06-13-skill-auditor.md`、使用說明 `README.md`
 
 ---
@@ -198,7 +198,7 @@ class AuditReport(BaseModel):
 
 ---
 
-## 7. 掃描器與規則型錄（系統核心，共 31 條靜態規則）
+## 7. 掃描器與規則型錄（系統核心，共 32 條靜態規則）
 
 每條規則有唯一 `rule_id`，由 `scanners.RULES` 統一登錄（供 `GET /rules` 查詢）。
 
@@ -213,6 +213,7 @@ class AuditReport(BaseModel):
 | `OVER_PERMISSION` | frontmatter | wildcard `allowed-tools`、auto-run `hooks` |
 | `OBFUSCATION` | obfuscation_secrets / python_ast | base64/hex decode→exec、零寬/不可見 unicode、無法 parse 的 Python |
 | `SECRETS` | obfuscation_secrets | 寫死 AWS/GitHub/OpenRouter key、通用憑證字面量 |
+| `AUDIT_COVERAGE` | coverage | 可掃描檔案因過大/無法讀取而**未被靜態分析**（消除「靜默略過 → 誤判 pass」的繞過面） |
 
 ### 規則清單
 
@@ -244,6 +245,7 @@ class AuditReport(BaseModel):
 | OB-SECRET-GH-001 | SECRETS | HIGH | `ghp_…` GitHub token |
 | OB-SECRET-OR-001 | SECRETS | HIGH | `sk-or-v1-…` OpenRouter key |
 | OB-SECRET-GENERIC-001 | SECRETS | HIGH | 通用 `password/secret/api_key = "…"` |
+| AUDIT-COVERAGE-001 | AUDIT_COVERAGE | MEDIUM | 可掃描檔案過大/無法讀取，未經靜態分析（避免靜默漏掃） |
 
 **為何 Python 用 `ast`**：AST 能準確辨識「呼叫了 `eval`」「`requests.post` 帶了檔案內容」這類語意，誤報遠低於字串比對。shell/markdown 無現成 AST，採規則式 + 啟發式。
 
@@ -270,9 +272,12 @@ class AuditReport(BaseModel):
   1. `qwen/qwen3-coder:free`
   2. `openai/gpt-oss-120b:free`
   3. `meta-llama/llama-3.3-70b-instruct:free`
+- **逾時**：每次 `run_sync` 帶 `model_settings={"timeout": LLM_TIMEOUT_SECONDS}`（30s），避免卡死的免費模型拖垮請求；逾時走降級路徑。
 - **降級路徑**（皆有測試）：
   - 無 API key → `build_model()` 回 `None` → `note "LLM skipped"`、`llm_used=False`。
-  - 模型全失敗（429/503/網路）→ `semantic_scan` 的 `try/except` 回 `[]` → 加 note、`llm_used=False`。
+  - 模型全失敗/逾時（429/503/網路）→ `semantic_scan` 回 `([], ran=False)` → 加 note、`llm_used=False`。
+  - **LLM 成功但無 findings → `ran=True`、`llm_used=True`**（與「LLM 沒跑」明確區分，消除誤報的降級訊號）。
+  - 任一檔案內容超過 `MAX_FILE_CHARS` 而被截斷送 LLM → 報告加 note 列出檔名（不靜默漏審）。
   - 無論哪種，**靜態骨幹仍完整**，報告照常產出。
 - **容錯解析**：`_coerce()` 對 LLM 回傳的每筆 dict 做防禦式轉型（缺欄位給預設、壞 severity/confidence 直接丟棄該筆而非崩潰）。
 
@@ -295,6 +300,8 @@ python -m skill_auditor <skill 路徑> [--no-llm] [--json] [--fail-on critical|h
   - JSON body `{"path": "...", "use_llm": false}` → 稽核本地目錄（非目錄回 404）。
   - 或 multipart `.zip` 上傳（`?use_llm=...`）→ 解壓到暫存目錄、稽核後即刪。
   - 單一路由依 `Content-Type` 分流（見 §12 落差說明）。
+  - **path-mode 限縮（防任意檔案讀取）**：path 稽核僅在設定 `SKILL_AUDITOR_ALLOWED_ROOT` 時開放，且路徑 `resolve()` 後必須落在該根目錄內；未設定或越界一律 `403`。沒有此防護時，無認證 API 可被指向 `~/.ssh` 等任意目錄並把內容當 evidence 回傳。
+  - **不阻塞 event loop**：稽核（含 LLM 阻塞 I/O）以 `run_in_threadpool` 卸載，避免序列化並行請求。
   - **安全**：zip-slip 防護（解壓前以 Path 為基準檢查 `../`、絕對路徑）、檔案大小上限 `MAX_ZIP_BYTES=20MB`、檔數上限 `MAX_ZIP_ENTRIES=2000`、`BadZipFile` → 400。
 - `GET /health` → `{"status":"ok"}`；`GET /rules` → 全 `rule_id` 與說明。
 - 互動文件自動掛在 `/docs`。
@@ -316,13 +323,18 @@ python -m skill_auditor <skill 路徑> [--no-llm] [--json] [--fail-on critical|h
 
 ## 12. 與規格的落差（As-built deltas）
 
-實作忠於規格，三處值得記錄：
+實作忠於規格，數處值得記錄：
 
-1. **LLM `adjudicate()`（逐項裁決/信心重評）**：規格 §3② 有描述，但 v1 只出 `semantic_scan()`；靜態 finding 一律 `confidence=1.0`、尚未經 LLM 重評。型別欄位（`source`、`confidence`）已預留。
+1. **LLM `adjudicate()`（逐項信心重評）**：規格 §3② 有描述，v1 仍未做逐項信心重評（靜態 finding 一律 `confidence=1.0`）。**但已補上靜態/LLM 對帳**：`report.dedupe_findings()` 去除完全重複，並在 LLM finding 與某靜態 finding 同 `(file, category)`（行號相同或未提供）時丟棄 LLM 那筆——靜態優先，避免 verdict 重複計數。
 2. **`FILESYSTEM` / `METADATA_MISMATCH` 類別**：v1 未做成獨立靜態規則 — path traversal / 意圖不符交由 LLM 語意階段處理，而非專屬掃描器。
-3. **`/audit` 端點**：改為依 `Content-Type` 分流（`Request` 為基礎），因 FastAPI 無法在單一路由同時宣告 JSON body 模型與 file 上傳。行為（路徑稽核 + 安全 zip 上傳 + zip-slip 阻擋）不變。
+3. **`/audit` 端點**：依 `Content-Type` 分流（`Request` 為基礎），因 FastAPI 無法在單一路由同時宣告 JSON body 模型與 file 上傳。path-mode 另加 `SKILL_AUDITOR_ALLOWED_ROOT` 限縮（見 §10.2）。
 
-其餘（8 類拆分、抗注入、優雅降級、verdict/exit 語意、zip-slip）皆與規格一致。
+**審查後已修補（v1.1）**：
+- 靜默漏掃面：可掃描檔案過大/無法讀取 → `AUDIT-COVERAGE-001`；偽裝副檔名的程式碼（如 `.txt` 內含 Python/shebang）→ inventory 內容嗅探後重新分類並照常掃描。
+- LLM 降級訊號 `(findings, ran)` 二元化；截斷送 LLM 會在報告留 note。
+- API path-mode 任意檔案讀取 → allow-root 限縮 + 403；阻塞稽核改 `run_in_threadpool`；LLM 加逾時。
+
+其餘（抗注入、優雅降級、verdict/exit 語意、zip-slip）皆與規格一致。
 
 ---
 
