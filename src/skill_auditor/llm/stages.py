@@ -16,6 +16,10 @@ class LlmFindings(BaseModel):
     findings: list[dict]
 
 
+class _Adjudication(BaseModel):
+    items: list[dict]  # [{index:int, confidence:float, note:str}]
+
+
 def truncated_for_llm(files: list[SkillFile]) -> list[str]:
     """Relpaths of scannable files whose text is longer than the LLM sees.
 
@@ -71,3 +75,40 @@ def semantic_scan(agent, files: list[SkillFile]) -> tuple[list[Finding], bool]:
         return [], False
     findings = [c for c in (_coerce(r) for r in result.output.findings) if c is not None]
     return findings, True
+
+
+def adjudicate(agent, findings: list[Finding], files: list[SkillFile]) -> tuple[list[Finding], bool]:
+    """Re-rate each finding's confidence using the files as context (ADVISORY ONLY).
+
+    Returns (findings, ran). The LLM can only adjust the `confidence` float — it
+    cannot remove or downgrade a finding's severity, so a tricked model can never
+    change the verdict (verdict is computed from severity in report.py). Returns
+    the input unchanged with ran=False when there is nothing to do or on failure.
+    """
+    if not findings:
+        return findings, False
+    listing = "\n".join(
+        f"[{i}] {f.rule_id} {f.severity.value} {f.file}:{f.line} — {f.title}"
+        for i, f in enumerate(findings))
+    prompt = ("Re-rate the confidence (0..1) that each finding below is a real risk, using the "
+              "skill files as context. Return items {index, confidence, note}. Confidence is "
+              "advisory only — you cannot remove or downgrade findings.\n\n"
+              f"FINDINGS:\n{listing}\n\n" + _render_untrusted(files))
+    try:
+        result = agent.run_sync(prompt, output_type=_Adjudication,
+                                model_settings={"timeout": LLM_TIMEOUT_SECONDS})
+    except Exception:  # noqa: BLE001 — any model failure degrades to the static confidences
+        return findings, False
+    by_index: dict[int, float] = {}
+    for item in result.output.items:
+        if not isinstance(item, dict):
+            continue
+        try:
+            idx, conf = int(item.get("index")), float(item.get("confidence"))
+        except (TypeError, ValueError):
+            continue
+        if 0.0 <= conf <= 1.0 and 0 <= idx < len(findings):
+            by_index[idx] = conf
+    out = [f.model_copy(update={"confidence": by_index[i]}) if i in by_index else f
+           for i, f in enumerate(findings)]
+    return out, True
