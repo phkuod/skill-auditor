@@ -10,6 +10,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from skill_auditor.config import ALLOWED_ROOT_ENV_VAR, load_allowed_root
 from skill_auditor.engine import audit_skill
@@ -69,7 +70,8 @@ async def audit(request: Request, use_llm: bool = True) -> dict:
                 raise HTTPException(status_code=400, detail="not a valid zip archive")
             roots = list(tmpdir.rglob("SKILL.md"))
             skill_root = roots[0].parent if roots else tmpdir
-            return audit_skill(skill_root, use_llm=use_llm).model_dump()
+            report = await run_in_threadpool(audit_skill, skill_root, use_llm=use_llm)
+            return report.model_dump()
 
     body = await request.json()
     payload = AuditPathRequest.model_validate(body)
@@ -83,4 +85,5 @@ async def audit(request: Request, use_llm: bool = True) -> dict:
             detail=f"path is outside the allowed root: {payload.path}")
     if not skill_dir.is_dir():
         raise HTTPException(status_code=404, detail=f"not a directory: {payload.path}")
-    return audit_skill(skill_dir, use_llm=payload.use_llm).model_dump()
+    report = await run_in_threadpool(audit_skill, skill_dir, use_llm=payload.use_llm)
+    return report.model_dump()

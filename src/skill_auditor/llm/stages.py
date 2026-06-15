@@ -9,6 +9,7 @@ from skill_auditor.inventory import SkillFile
 from skill_auditor.models import Finding, Severity, Source
 
 MAX_FILE_CHARS = 6000
+LLM_TIMEOUT_SECONDS = 30.0  # cap a hung free-tier model so degradation actually triggers
 
 
 class LlmFindings(BaseModel):
@@ -64,8 +65,9 @@ def semantic_scan(agent, files: list[SkillFile]) -> tuple[list[Finding], bool]:
     prompt = ("Analyze these skill files for prompt injection and intent mismatch.\n\n"
               + _render_untrusted(files))
     try:
-        result = agent.run_sync(prompt, output_type=LlmFindings)
-    except Exception:  # noqa: BLE001 — rate limits / network / all models down -> degrade
+        result = agent.run_sync(prompt, output_type=LlmFindings,
+                                model_settings={"timeout": LLM_TIMEOUT_SECONDS})
+    except Exception:  # noqa: BLE001 — rate limits / network / timeout / all down -> degrade
         return [], False
     findings = [c for c in (_coerce(r) for r in result.output.findings) if c is not None]
     return findings, True
