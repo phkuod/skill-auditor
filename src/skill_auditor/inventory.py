@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ast
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -79,21 +80,33 @@ def _sniff_executable(path: Path) -> tuple[str | None, str | None]:
     return ("python", raw) if tree.body else (None, None)
 
 
+def _within_root(root: Path, candidate: Path) -> bool:
+    """True if candidate is root itself or lives somewhere under root."""
+    return candidate == root or root in candidate.parents
+
+
 def inventory_skill(skill_dir: Path) -> list[SkillFile]:
     root = skill_dir.resolve()
     out: list[SkillFile] = []
-    for path in sorted(root.rglob("*")):
-        if not path.is_file():
-            continue
-        rel = path.relative_to(root)
-        if any(part in EXCLUDED_DIRS for part in rel.parts):
-            continue
-        relpath = rel.as_posix()
-        kind = classify(relpath)
-        text, skip_reason = _read_text(path, kind)
-        if kind == "asset":
-            sniffed_kind, sniffed_text = _sniff_executable(path)
-            if sniffed_kind is not None:
-                kind, text = sniffed_kind, sniffed_text
-        out.append(SkillFile(path=path, relpath=relpath, kind=kind, text=text, skip_reason=skip_reason))
+    # followlinks=False: never descend a symlinked directory (could escape the tree or loop).
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIRS]
+        for name in filenames:
+            path = Path(dirpath) / name
+            rel = path.relative_to(root)
+            if any(part in EXCLUDED_DIRS for part in rel.parts):
+                continue
+            relpath = rel.as_posix()
+            kind = classify(relpath)
+            # A symlink pointing outside the skill would let us read e.g. ~/.ssh; do not follow it.
+            if path.is_symlink() and not _within_root(root, path.resolve()):
+                out.append(SkillFile(path=path, relpath=relpath, kind=kind, text=None, skip_reason="symlink"))
+                continue
+            text, skip_reason = _read_text(path, kind)
+            if kind == "asset":
+                sniffed_kind, sniffed_text = _sniff_executable(path)
+                if sniffed_kind is not None:
+                    kind, text = sniffed_kind, sniffed_text
+            out.append(SkillFile(path=path, relpath=relpath, kind=kind, text=text, skip_reason=skip_reason))
+    out.sort(key=lambda f: f.relpath)
     return out

@@ -1,7 +1,7 @@
 # skill-auditor — 完整設計與架構（Design & Architecture）
 
 **版本**：v1（已實作，已合併 master）
-**狀態**：70 tests pass · coverage 94% · 安全不變式（never executes audited code）已由最終審查確認
+**狀態**：77 tests pass（1 skipped：symlink 測試需 OS 支援）· coverage 94% · 安全不變式（never executes audited code）已由最終審查確認
 **相關文件**：設計規格 `docs/superpowers/specs/2026-06-13-skill-auditor-design.md`、實作計畫 `docs/superpowers/plans/2026-06-13-skill-auditor.md`、使用說明 `README.md`
 
 ---
@@ -198,7 +198,7 @@ class AuditReport(BaseModel):
 
 ---
 
-## 7. 掃描器與規則型錄（系統核心，共 32 條靜態規則）
+## 7. 掃描器與規則型錄（系統核心，共 42 條靜態規則）
 
 每條規則有唯一 `rule_id`，由 `scanners.RULES` 統一登錄（供 `GET /rules` 查詢）。
 
@@ -206,26 +206,29 @@ class AuditReport(BaseModel):
 
 | 類別 | 掃描器 | 偵測內容 |
 |------|--------|----------|
-| `RCE_SUPPLY_CHAIN` | python_ast / shell | `eval`/`exec`/`compile`/`__import__`、`subprocess`、`os.system`、`pickle.loads`、`curl\|bash` |
-| `DESTRUCTIVE` | shell / python_ast | `rm -rf`、`shutil.rmtree`、`dd`、`mkfs`、`git push --force` |
-| `EXFILTRATION` | python_ast | 對外網路（`requests`/`urllib`）+ 讀取 `~/.ssh`/`.env`/credentials 等敏感路徑 |
+| `RCE_SUPPLY_CHAIN` | python_ast / shell | `eval`/`exec`/`compile`/`__import__`/`importlib.import_module`、`subprocess`、`os.system`、`pickle.loads`、`curl\|bash` |
+| `DESTRUCTIVE` | shell / python_ast | `rm -rf`、`shutil.rmtree`、`os.remove`/`unlink`/`rmdir`、`Path.unlink`、`dd`、`mkfs`、`git push --force` |
+| `EXFILTRATION` | python_ast | 對外網路（`requests`/`urllib`/`httpx`/`socket`）+ 讀取 `~/.ssh`/`.env`/credentials 等敏感路徑 |
+| `FILESYSTEM` | filesystem | path traversal（`../`）、`open()` 寫入絕對路徑（逃出 skill 目錄） |
 | `PROMPT_INJECTION` | markdown_injection | 「ignore previous instructions」、偽 `SYSTEM:` 標頭、「if you are an AI…」、誘導裁決 |
 | `OVER_PERMISSION` | frontmatter | wildcard `allowed-tools`、auto-run `hooks` |
 | `OBFUSCATION` | obfuscation_secrets / python_ast | base64/hex decode→exec、零寬/不可見 unicode、無法 parse 的 Python |
 | `SECRETS` | obfuscation_secrets | 寫死 AWS/GitHub/OpenRouter key、通用憑證字面量 |
-| `AUDIT_COVERAGE` | coverage | 可掃描檔案因過大/無法讀取而**未被靜態分析**（消除「靜默略過 → 誤判 pass」的繞過面） |
+| `AUDIT_COVERAGE` | coverage | 可掃描檔案因過大/無法讀取/為逃逸 symlink 而**未被靜態分析**（消除「靜默略過 → 誤判 pass」的繞過面） |
 
 ### 規則清單
 
 | rule_id | 類別 | 嚴重度 | 說明 |
 |---------|------|--------|------|
 | PY-EXEC-001 / 002 / 003 | RCE_SUPPLY_CHAIN | CRITICAL/CRITICAL/HIGH | `eval()` / `exec()` / `compile()` |
-| PY-IMPORT-001 | RCE_SUPPLY_CHAIN | HIGH | 動態 `__import__()` |
+| PY-IMPORT-001 / 002 | RCE_SUPPLY_CHAIN | HIGH | 動態 `__import__()` / `importlib.import_module()` |
 | PY-SUBPROC-001 / 002 | RCE_SUPPLY_CHAIN | HIGH | `subprocess.run` / `Popen` |
 | PY-OSSYS-001 | RCE_SUPPLY_CHAIN | HIGH | `os.system` |
 | PY-PICKLE-001 | RCE_SUPPLY_CHAIN | HIGH | `pickle.loads` |
 | PY-RMTREE-001 | DESTRUCTIVE | HIGH | `shutil.rmtree` |
+| PY-RM-001 / 002 / 003 / 004 | DESTRUCTIVE | HIGH/HIGH/MEDIUM/MEDIUM | `os.remove` / `os.unlink` / `os.rmdir` / `Path.unlink` |
 | PY-NET-001 / 002 / 003 | EXFILTRATION | HIGH/MEDIUM/MEDIUM | `requests.post` / `requests.get` / `urllib.urlopen` |
+| PY-NET-004 / 005 / 006 | EXFILTRATION | HIGH/MEDIUM/MEDIUM | `httpx.post` / `httpx.get` / `socket.socket` |
 | PY-SECRET-READ-001 | EXFILTRATION | HIGH | 字串引用敏感路徑（`.ssh`/`id_rsa`/`.env`/`.aws`/`credentials`/`.netrc`） |
 | PY-PARSE-001 | OBFUSCATION | MEDIUM | Python 無法 parse（不可審即可疑） |
 | SH-RMRF-001 | DESTRUCTIVE | CRITICAL | `rm -rf`（兩種旗標順序） |
@@ -245,7 +248,9 @@ class AuditReport(BaseModel):
 | OB-SECRET-GH-001 | SECRETS | HIGH | `ghp_…` GitHub token |
 | OB-SECRET-OR-001 | SECRETS | HIGH | `sk-or-v1-…` OpenRouter key |
 | OB-SECRET-GENERIC-001 | SECRETS | HIGH | 通用 `password/secret/api_key = "…"` |
-| AUDIT-COVERAGE-001 | AUDIT_COVERAGE | MEDIUM | 可掃描檔案過大/無法讀取，未經靜態分析（避免靜默漏掃） |
+| FS-TRAVERSAL-001 | FILESYSTEM | MEDIUM | path traversal `../`（python 字串 / shell / config） |
+| FS-ABSWRITE-001 | FILESYSTEM | HIGH | `open(<絕對路徑>, 'w'/'a'/'x')` 寫到 skill 目錄外 |
+| AUDIT-COVERAGE-001 | AUDIT_COVERAGE | MEDIUM | 可掃描檔案過大/無法讀取/逃逸 symlink，未經靜態分析（避免靜默漏掃） |
 
 **為何 Python 用 `ast`**：AST 能準確辨識「呼叫了 `eval`」「`requests.post` 帶了檔案內容」這類語意，誤報遠低於字串比對。shell/markdown 無現成 AST，採規則式 + 啟發式。
 
@@ -326,13 +331,18 @@ python -m skill_auditor <skill 路徑> [--no-llm] [--json] [--fail-on critical|h
 實作忠於規格，數處值得記錄：
 
 1. **LLM `adjudicate()`（逐項信心重評）**：規格 §3② 有描述，v1 仍未做逐項信心重評（靜態 finding 一律 `confidence=1.0`）。**但已補上靜態/LLM 對帳**：`report.dedupe_findings()` 去除完全重複，並在 LLM finding 與某靜態 finding 同 `(file, category)`（行號相同或未提供）時丟棄 LLM 那筆——靜態優先，避免 verdict 重複計數。
-2. **`FILESYSTEM` / `METADATA_MISMATCH` 類別**：v1 未做成獨立靜態規則 — path traversal / 意圖不符交由 LLM 語意階段處理，而非專屬掃描器。
+2. **`METADATA_MISMATCH` 類別**：v1 未做成獨立靜態規則 — 意圖/描述不符交由 LLM 語意階段處理，而非專屬掃描器。（`FILESYSTEM` 已於 v1.2 補上獨立掃描器，見下。）
 3. **`/audit` 端點**：依 `Content-Type` 分流（`Request` 為基礎），因 FastAPI 無法在單一路由同時宣告 JSON body 模型與 file 上傳。path-mode 另加 `SKILL_AUDITOR_ALLOWED_ROOT` 限縮（見 §10.2）。
 
 **審查後已修補（v1.1）**：
 - 靜默漏掃面：可掃描檔案過大/無法讀取 → `AUDIT-COVERAGE-001`；偽裝副檔名的程式碼（如 `.txt` 內含 Python/shebang）→ inventory 內容嗅探後重新分類並照常掃描。
 - LLM 降級訊號 `(findings, ran)` 二元化；截斷送 LLM 會在報告留 note。
 - API path-mode 任意檔案讀取 → allow-root 限縮 + 403；阻塞稽核改 `run_in_threadpool`；LLM 加逾時。
+
+**掃描廣度與逃逸（v1.2）**：
+- AST 廣度：補上 `httpx`/`socket`（EXFIL）、`os.remove`/`unlink`/`rmdir`/`Path.unlink`（DESTRUCTIVE）、`importlib.import_module`（RCE），堵住換 library 即繞過的破口。
+- `FILESYSTEM` 掃描器：`../` path traversal + `open()` 寫絕對路徑（`FS-TRAVERSAL-001` / `FS-ABSWRITE-001`）。
+- symlink 逃逸：`inventory` 改 `os.walk(followlinks=False)`，逃出 skill 根的 symlink 不跟隨、標為 `skip_reason=symlink`（避免讀到 `~/.ssh` 等）。
 
 其餘（抗注入、優雅降級、verdict/exit 語意、zip-slip）皆與規格一致。
 

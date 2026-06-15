@@ -7,6 +7,7 @@ from skill_auditor.inventory import SkillFile
 from skill_auditor.models import Finding
 from skill_auditor.scanners import (
     coverage,
+    filesystem,
     frontmatter,
     markdown_injection,
     obfuscation_secrets,
@@ -14,7 +15,8 @@ from skill_auditor.scanners import (
     shell,
 )
 
-SCANNERS = [python_ast, shell, markdown_injection, frontmatter, obfuscation_secrets, coverage]
+SCANNERS = [python_ast, shell, markdown_injection, frontmatter, obfuscation_secrets,
+            filesystem, coverage]
 
 
 def run_all(files: list[SkillFile]) -> list[Finding]:
@@ -31,6 +33,8 @@ def _build_rules_catalog() -> dict[str, dict]:
     for v in python_ast.DANGEROUS_CALLS.values():
         catalog[v[0]] = {"category": v[1], "severity": v[2].value, "description": v[3]}
     for v in python_ast.DANGEROUS_ATTR_CALLS.values():
+        catalog[v[0]] = {"category": v[1], "severity": v[2].value, "description": v[3]}
+    for v in python_ast.DANGEROUS_METHODS.values():
         catalog[v[0]] = {"category": v[1], "severity": v[2].value, "description": v[3]}
     catalog["PY-SECRET-READ-001"] = {"category": "EXFILTRATION", "severity": "high",
                                      "description": "Reference to a sensitive path"}
@@ -54,6 +58,11 @@ def _build_rules_catalog() -> dict[str, dict]:
                                  "description": "Encoded payload decode"}
     for rid, _rx, title in obfuscation_secrets.SECRET_RULES:
         catalog[rid] = {"category": "SECRETS", "severity": "high", "description": title}
+    # filesystem
+    catalog["FS-TRAVERSAL-001"] = {"category": filesystem.CATEGORY, "severity": "medium",
+                                   "description": "Path traversal ('../') sequence"}
+    catalog["FS-ABSWRITE-001"] = {"category": filesystem.CATEGORY, "severity": "high",
+                                  "description": "Write to an absolute path outside the skill"}
     # coverage
     catalog[coverage.RULE_ID] = {"category": coverage.CATEGORY, "severity": "medium",
                                  "description": "File could not be fully audited (skipped/too large)"}

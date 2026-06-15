@@ -80,3 +80,30 @@ def test_prose_text_stays_asset(tmp_path):
     files = inventory_skill(tmp_path)
     notes = next(f for f in files if f.relpath == "notes.txt")
     assert notes.kind == "asset"
+
+
+def test_within_root_accepts_inside_rejects_outside(tmp_path):
+    from skill_auditor.inventory import _within_root
+    root = tmp_path.resolve()
+    assert _within_root(root, root)
+    assert _within_root(root, root / "sub" / "x.py")
+    assert not _within_root(root, root.parent / "elsewhere" / "secret")
+
+
+def test_symlink_escaping_skill_is_not_read(tmp_path):
+    import pytest
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOP-SECRET")
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("# x")
+    link = skill / "leak.py"
+    try:
+        link.symlink_to(secret)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks not permitted on this platform")
+    files = inventory_skill(skill)
+    leak = next(f for f in files if f.relpath == "leak.py")
+    assert leak.text is None
+    assert leak.skip_reason == "symlink"
+    assert all("TOP-SECRET" not in (f.text or "") for f in files)
