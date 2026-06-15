@@ -17,6 +17,7 @@ RULE_ID = "AUDIT-COVERAGE-001"
 _REASON_TEXT = {
     "too_large": "exceeds the size limit, so it was not read or statically analyzed",
     "unreadable": "could not be read, so it was not statically analyzed",
+    "symlink": "is a symlink pointing outside the skill, so it was not followed or analyzed",
 }
 
 
