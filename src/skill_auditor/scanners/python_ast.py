@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ast
+import re
 
 from skill_auditor.inventory import SkillFile
 from skill_auditor.models import Finding, Severity, Source
@@ -46,11 +47,22 @@ def _attr_chain(node: ast.AST) -> tuple[str, str] | None:
     return None
 
 
-def _scan_source(relpath: str, source: str) -> list[Finding]:
+_PY_FENCE = re.compile(r"```(?:python|py)[^\n]*\n(.*?)```", re.DOTALL | re.IGNORECASE)
+
+
+def _python_blocks(text: str) -> list[tuple[int, str]]:
+    """Fenced ```python blocks in markdown as (first_code_line, code)."""
+    return [(text[:m.start(1)].count("\n") + 1, m.group(1)) for m in _PY_FENCE.finditer(text)]
+
+
+def _scan_source(relpath: str, source: str, *, line_offset: int = 0,
+                 report_parse_error: bool = True) -> list[Finding]:
     findings: list[Finding] = []
     try:
         tree = ast.parse(source)
     except SyntaxError:
+        if not report_parse_error:  # doc pseudo-code in a fence isn't a real script
+            return []
         return [Finding(
             rule_id="PY-PARSE-001", category="OBFUSCATION", severity=Severity.MEDIUM,
             title="Python file does not parse", file=relpath, line=None,
@@ -63,31 +75,35 @@ def _scan_source(relpath: str, source: str) -> list[Finding]:
         i = getattr(node, "lineno", 0)
         return lines[i - 1].strip()[:200] if 1 <= i <= len(lines) else ""
 
+    def ln(node) -> int | None:
+        i = getattr(node, "lineno", None)
+        return i + line_offset if i is not None else None
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             func = node.func
             if isinstance(func, ast.Name) and func.id in DANGEROUS_CALLS:
                 rid, cat, sev, why = DANGEROUS_CALLS[func.id]
                 findings.append(Finding(rule_id=rid, category=cat, severity=sev,
-                    title=f"{func.id}() call", file=relpath, line=node.lineno, evidence=ev(node),
+                    title=f"{func.id}() call", file=relpath, line=ln(node), evidence=ev(node),
                     explanation=why, remediation=f"Remove or justify the {func.id}() call.", source=Source.STATIC))
             chain = _attr_chain(func)
             if chain and chain in DANGEROUS_ATTR_CALLS:
                 rid, cat, sev, why = DANGEROUS_ATTR_CALLS[chain]
                 findings.append(Finding(rule_id=rid, category=cat, severity=sev,
-                    title=f"{chain[0]}.{chain[1]}() call", file=relpath, line=node.lineno, evidence=ev(node),
+                    title=f"{chain[0]}.{chain[1]}() call", file=relpath, line=ln(node), evidence=ev(node),
                     explanation=why, remediation="Verify this call is necessary and safe.", source=Source.STATIC))
             elif isinstance(func, ast.Attribute) and func.attr in DANGEROUS_METHODS:
                 rid, cat, sev, why = DANGEROUS_METHODS[func.attr]
                 findings.append(Finding(rule_id=rid, category=cat, severity=sev,
-                    title=f".{func.attr}() call", file=relpath, line=node.lineno, evidence=ev(node),
+                    title=f".{func.attr}() call", file=relpath, line=ln(node), evidence=ev(node),
                     explanation=why, remediation="Verify this call is necessary and safe.", source=Source.STATIC))
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             low = node.value.lower()
             if any(h in low for h in SECRET_PATH_HINTS):
                 findings.append(Finding(rule_id="PY-SECRET-READ-001", category="EXFILTRATION",
                     severity=Severity.HIGH, title="Reference to a sensitive path", file=relpath,
-                    line=getattr(node, "lineno", None), evidence=ev(node),
+                    line=ln(node), evidence=ev(node),
                     explanation=f"References a sensitive location ({node.value!r}); may read credentials.",
                     remediation="Confirm the skill has no reason to touch credential files.", source=Source.STATIC))
     return findings
@@ -96,6 +112,12 @@ def _scan_source(relpath: str, source: str) -> list[Finding]:
 def scan(files: list[SkillFile]) -> list[Finding]:
     findings: list[Finding] = []
     for f in files:
-        if f.kind == "python" and f.text is not None:
+        if f.text is None:
+            continue
+        if f.kind == "python":
             findings.extend(_scan_source(f.relpath, f.text))
+        elif f.kind in ("markdown", "skill_md"):
+            for start, code in _python_blocks(f.text):
+                findings.extend(_scan_source(f.relpath, code, line_offset=start - 1,
+                                             report_parse_error=False))
     return findings

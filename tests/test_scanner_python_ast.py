@@ -56,6 +56,20 @@ def test_benign_method_calls_do_not_trigger_delete_rule(tmp_path):
     assert python_ast.scan(inventory_skill(tmp_path)) == []
 
 
+def test_flags_python_in_markdown_code_block(tmp_path):
+    (tmp_path / "SKILL.md").write_text(
+        "# Doc\n\nRun this:\n\n```python\nimport os\nos.system('rm -rf /tmp/x')\n```\n")
+    findings = python_ast.scan(inventory_skill(tmp_path))
+    assert any(f.rule_id == "PY-OSSYS-001" and f.file == "SKILL.md" and f.line == 7
+               for f in findings)
+
+
+def test_markdown_unparseable_pseudocode_is_silent(tmp_path):
+    # Docs often contain non-runnable pseudo-code in fences — must not FP as PY-PARSE-001.
+    (tmp_path / "a.md").write_text("# Title\n\n```python\nfoo bar baz\n```\n")
+    assert python_ast.scan(inventory_skill(tmp_path)) == []
+
+
 def test_handles_syntax_error_without_crashing(tmp_path):
     (tmp_path / "broken.py").write_text("def (:\n")
     from skill_auditor.inventory import inventory_skill as inv
