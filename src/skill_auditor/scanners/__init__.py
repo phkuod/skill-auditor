@@ -55,7 +55,11 @@ def _build_rules_catalog() -> dict[str, dict]:
     catalog["OB-ZEROWIDTH-001"] = {"category": "OBFUSCATION", "severity": "high",
                                    "description": "Zero-width / invisible characters"}
     catalog["OB-B64EXEC-001"] = {"category": "OBFUSCATION", "severity": "high",
-                                 "description": "Encoded payload decode"}
+                                 "description": "Encoded payload decode (base64/hex/rot13)"}
+    catalog["OB-HOMOGLYPH-001"] = {"category": "OBFUSCATION", "severity": "high",
+                                   "description": "Mixed-script homoglyph (Latin + Cyrillic/Greek)"}
+    catalog["OB-LONGLINE-001"] = {"category": "OBFUSCATION", "severity": "medium",
+                                  "description": "Abnormally long line (possible encoded blob)"}
     for rid, _rx, title in obfuscation_secrets.SECRET_RULES:
         catalog[rid] = {"category": "SECRETS", "severity": "high", "description": title}
     # filesystem
