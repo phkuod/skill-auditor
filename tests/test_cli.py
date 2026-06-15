@@ -30,3 +30,13 @@ def test_json_output_is_valid(capsys):
 def test_missing_path_errors():
     with pytest.raises(SystemExit):
         main(["--no-llm", str(FIX / "does_not_exist")])
+
+
+def test_main_module_entrypoint_exits_with_verdict_code(monkeypatch):
+    import runpy
+    import sys
+    monkeypatch.setattr(sys, "argv",
+                        ["skill_auditor", "--no-llm", "--quiet", str(FIX / "clean_skill")])
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_module("skill_auditor", run_name="__main__")
+    assert exc.value.code == 0
