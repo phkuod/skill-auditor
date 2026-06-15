@@ -20,10 +20,21 @@ DANGEROUS_ATTR_CALLS = {
     ("subprocess", "Popen"): ("PY-SUBPROC-002", "RCE_SUPPLY_CHAIN", Severity.HIGH, "subprocess execution"),
     ("os", "system"): ("PY-OSSYS-001", "RCE_SUPPLY_CHAIN", Severity.HIGH, "os.system shell execution"),
     ("pickle", "loads"): ("PY-PICKLE-001", "RCE_SUPPLY_CHAIN", Severity.HIGH, "pickle.loads is unsafe"),
+    ("importlib", "import_module"): ("PY-IMPORT-002", "RCE_SUPPLY_CHAIN", Severity.HIGH, "dynamic importlib.import_module"),
     ("shutil", "rmtree"): ("PY-RMTREE-001", "DESTRUCTIVE", Severity.HIGH, "recursive delete"),
+    ("os", "remove"): ("PY-RM-001", "DESTRUCTIVE", Severity.HIGH, "os.remove deletes a file"),
+    ("os", "unlink"): ("PY-RM-002", "DESTRUCTIVE", Severity.HIGH, "os.unlink deletes a file"),
+    ("os", "rmdir"): ("PY-RM-003", "DESTRUCTIVE", Severity.MEDIUM, "os.rmdir removes a directory"),
     ("requests", "post"): ("PY-NET-001", "EXFILTRATION", Severity.HIGH, "outbound network POST"),
     ("requests", "get"): ("PY-NET-002", "EXFILTRATION", Severity.MEDIUM, "outbound network GET"),
     ("urllib", "urlopen"): ("PY-NET-003", "EXFILTRATION", Severity.MEDIUM, "outbound network request"),
+    ("httpx", "post"): ("PY-NET-004", "EXFILTRATION", Severity.HIGH, "outbound network POST (httpx)"),
+    ("httpx", "get"): ("PY-NET-005", "EXFILTRATION", Severity.MEDIUM, "outbound network GET (httpx)"),
+    ("socket", "socket"): ("PY-NET-006", "EXFILTRATION", Severity.MEDIUM, "raw socket (possible egress)"),
+}
+# method calls flagged on any receiver (e.g. pathlib Path.unlink)
+DANGEROUS_METHODS = {
+    "unlink": ("PY-RM-004", "DESTRUCTIVE", Severity.MEDIUM, "Path.unlink deletes a file"),
 }
 SECRET_PATH_HINTS = (".ssh", "id_rsa", ".env", ".aws", "credentials", ".netrc")
 
@@ -65,6 +76,11 @@ def _scan_source(relpath: str, source: str) -> list[Finding]:
                 rid, cat, sev, why = DANGEROUS_ATTR_CALLS[chain]
                 findings.append(Finding(rule_id=rid, category=cat, severity=sev,
                     title=f"{chain[0]}.{chain[1]}() call", file=relpath, line=node.lineno, evidence=ev(node),
+                    explanation=why, remediation="Verify this call is necessary and safe.", source=Source.STATIC))
+            elif isinstance(func, ast.Attribute) and func.attr in DANGEROUS_METHODS:
+                rid, cat, sev, why = DANGEROUS_METHODS[func.attr]
+                findings.append(Finding(rule_id=rid, category=cat, severity=sev,
+                    title=f".{func.attr}() call", file=relpath, line=node.lineno, evidence=ev(node),
                     explanation=why, remediation="Verify this call is necessary and safe.", source=Source.STATIC))
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             low = node.value.lower()

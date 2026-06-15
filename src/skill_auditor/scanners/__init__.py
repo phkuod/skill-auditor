@@ -32,6 +32,8 @@ def _build_rules_catalog() -> dict[str, dict]:
         catalog[v[0]] = {"category": v[1], "severity": v[2].value, "description": v[3]}
     for v in python_ast.DANGEROUS_ATTR_CALLS.values():
         catalog[v[0]] = {"category": v[1], "severity": v[2].value, "description": v[3]}
+    for v in python_ast.DANGEROUS_METHODS.values():
+        catalog[v[0]] = {"category": v[1], "severity": v[2].value, "description": v[3]}
     catalog["PY-SECRET-READ-001"] = {"category": "EXFILTRATION", "severity": "high",
                                      "description": "Reference to a sensitive path"}
     catalog["PY-PARSE-001"] = {"category": "OBFUSCATION", "severity": "medium",
