@@ -1,7 +1,7 @@
 # skill-auditor — 完整設計與架構（Design & Architecture）
 
 **版本**：v1（已實作，已合併 master）
-**狀態**：77 tests pass（1 skipped：symlink 測試需 OS 支援）· coverage 94% · 安全不變式（never executes audited code）已由最終審查確認
+**狀態**：85 tests pass（1 skipped：symlink 測試需 OS 支援）· coverage 94% · 安全不變式（never executes audited code）已由最終審查確認
 **相關文件**：設計規格 `docs/superpowers/specs/2026-06-13-skill-auditor-design.md`、實作計畫 `docs/superpowers/plans/2026-06-13-skill-auditor.md`、使用說明 `README.md`
 
 ---
@@ -198,7 +198,7 @@ class AuditReport(BaseModel):
 
 ---
 
-## 7. 掃描器與規則型錄（系統核心，共 42 條靜態規則）
+## 7. 掃描器與規則型錄（系統核心，共 44 條靜態規則）
 
 每條規則有唯一 `rule_id`，由 `scanners.RULES` 統一登錄（供 `GET /rules` 查詢）。
 
@@ -212,7 +212,7 @@ class AuditReport(BaseModel):
 | `FILESYSTEM` | filesystem | path traversal（`../`）、`open()` 寫入絕對路徑（逃出 skill 目錄） |
 | `PROMPT_INJECTION` | markdown_injection | 「ignore previous instructions」、偽 `SYSTEM:` 標頭、「if you are an AI…」、誘導裁決 |
 | `OVER_PERMISSION` | frontmatter | wildcard `allowed-tools`、auto-run `hooks` |
-| `OBFUSCATION` | obfuscation_secrets / python_ast | base64/hex decode→exec、零寬/不可見 unicode、無法 parse 的 Python |
+| `OBFUSCATION` | obfuscation_secrets / python_ast | base64/hex/rot13 decode→exec、零寬/不可見 unicode、混合書寫系統 homoglyph、異常長行、無法 parse 的 Python |
 | `SECRETS` | obfuscation_secrets | 寫死 AWS/GitHub/OpenRouter key、通用憑證字面量 |
 | `AUDIT_COVERAGE` | coverage | 可掃描檔案因過大/無法讀取/為逃逸 symlink 而**未被靜態分析**（消除「靜默略過 → 誤判 pass」的繞過面） |
 
@@ -243,7 +243,9 @@ class AuditReport(BaseModel):
 | FM-WILDCARD-001 | OVER_PERMISSION | HIGH | `allowed-tools` 為 `*` / `["*"]` |
 | FM-HOOK-001 | OVER_PERMISSION | HIGH | frontmatter 宣告 `hooks` |
 | OB-ZEROWIDTH-001 | OBFUSCATION | HIGH | 零寬/不可見字元（U+200B/C/D、U+2060、U+FEFF） |
-| OB-B64EXEC-001 | OBFUSCATION | HIGH | base64/hex decode（python 檔） |
+| OB-B64EXEC-001 | OBFUSCATION | HIGH | base64/hex/rot13 decode（python 檔） |
+| OB-HOMOGLYPH-001 | OBFUSCATION | HIGH | 混合書寫系統 homoglyph（Latin + Cyrillic/Greek 同一 token） |
+| OB-LONGLINE-001 | OBFUSCATION | MEDIUM | 異常長行（>2000 字，疑似編碼 blob；python/shell） |
 | OB-SECRET-AWS-001 | SECRETS | HIGH | `AKIA[0-9A-Z]{16}` |
 | OB-SECRET-GH-001 | SECRETS | HIGH | `ghp_…` GitHub token |
 | OB-SECRET-OR-001 | SECRETS | HIGH | `sk-or-v1-…` OpenRouter key |
@@ -285,6 +287,7 @@ class AuditReport(BaseModel):
   - 任一檔案內容超過 `MAX_FILE_CHARS` 而被截斷送 LLM → 報告加 note 列出檔名（不靜默漏審）。
   - 無論哪種，**靜態骨幹仍完整**，報告照常產出。
 - **容錯解析**：`_coerce()` 對 LLM 回傳的每筆 dict 做防禦式轉型（缺欄位給預設、壞 severity/confidence 直接丟棄該筆而非崩潰）。
+- **第二階段 `adjudicate()`（逐項信心重評，僅供參考）**：semantic_scan 之後，LLM 以檔案為脈絡為每筆 finding 重評 `confidence`。**只能改 `confidence`，不能移除或降 severity**；verdict 仍由 severity 決定（見 §6 抗注入），故被注入的模型無法藉此壓掉 finding 或翻轉 verdict。任一模型失敗則保留靜態 confidence（`ran=False`）。
 
 ---
 
@@ -330,8 +333,8 @@ python -m skill_auditor <skill 路徑> [--no-llm] [--json] [--fail-on critical|h
 
 實作忠於規格，數處值得記錄：
 
-1. **LLM `adjudicate()`（逐項信心重評）**：規格 §3② 有描述，v1 仍未做逐項信心重評（靜態 finding 一律 `confidence=1.0`）。**但已補上靜態/LLM 對帳**：`report.dedupe_findings()` 去除完全重複，並在 LLM finding 與某靜態 finding 同 `(file, category)`（行號相同或未提供）時丟棄 LLM 那筆——靜態優先，避免 verdict 重複計數。
-2. **`METADATA_MISMATCH` 類別**：v1 未做成獨立靜態規則 — 意圖/描述不符交由 LLM 語意階段處理，而非專屬掃描器。（`FILESYSTEM` 已於 v1.2 補上獨立掃描器，見下。）
+1. **LLM `adjudicate()`（逐項信心重評）**：規格 §3② 已於 v1.3 實作（見 §9）——LLM 重評 `confidence`，僅供參考、不影響 verdict。另有靜態/LLM 對帳：`report.dedupe_findings()` 去除完全重複，並在 LLM finding 與某靜態 finding 同 `(file, category)`（行號相同或未提供）時丟棄 LLM 那筆。
+2. **`METADATA_MISMATCH` 類別**：**刻意不做成靜態規則**——描述與行為是否相符需同時理解自然語言與程式語意，正是 LLM `semantic_scan` 的職責；靜態啟發式只會製造誤報。維持 LLM-only。（`FILESYSTEM` 已於 v1.2 補上獨立掃描器，見下。）
 3. **`/audit` 端點**：依 `Content-Type` 分流（`Request` 為基礎），因 FastAPI 無法在單一路由同時宣告 JSON body 模型與 file 上傳。path-mode 另加 `SKILL_AUDITOR_ALLOWED_ROOT` 限縮（見 §10.2）。
 
 **審查後已修補（v1.1）**：
@@ -343,6 +346,10 @@ python -m skill_auditor <skill 路徑> [--no-llm] [--json] [--fail-on critical|h
 - AST 廣度：補上 `httpx`/`socket`（EXFIL）、`os.remove`/`unlink`/`rmdir`/`Path.unlink`（DESTRUCTIVE）、`importlib.import_module`（RCE），堵住換 library 即繞過的破口。
 - `FILESYSTEM` 掃描器：`../` path traversal + `open()` 寫絕對路徑（`FS-TRAVERSAL-001` / `FS-ABSWRITE-001`）。
 - symlink 逃逸：`inventory` 改 `os.walk(followlinks=False)`，逃出 skill 根的 symlink 不跟隨、標為 `skip_reason=symlink`（避免讀到 `~/.ssh` 等）。
+
+**LLM 第二階段與 OBFUSCATION 廣度（v1.3）**：
+- `adjudicate()` 逐項信心重評（advisory，見 §9）。
+- OBFUSCATION：homoglyph（`OB-HOMOGLYPH-001`）、異常長行（`OB-LONGLINE-001`）、rot13。
 
 其餘（抗注入、優雅降級、verdict/exit 語意、zip-slip）皆與規格一致。
 
