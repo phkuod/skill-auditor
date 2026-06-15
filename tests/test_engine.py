@@ -36,6 +36,20 @@ def test_injection_skill_blocked_even_when_llm_is_tricked():
                for f in report.findings)
 
 
+def test_clean_skill_with_working_llm_marks_llm_used(tmp_path):
+    # LLM ran and found nothing -> llm_used True (distinct from "LLM unavailable").
+    (tmp_path / "SKILL.md").write_text("---\nname: x\ndescription: y\n---\n# x\n")
+
+    def clean(messages, info):
+        from skill_auditor.llm.stages import LlmFindings
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name,
+                                                 LlmFindings(findings=[]).model_dump())])
+    agent = build_audit_agent(model=FunctionModel(clean))
+    report = audit_skill(tmp_path, use_llm=True, agent=agent)
+    assert report.llm_used is True
+    assert not any("unavailable" in n.lower() for n in report.notes)
+
+
 def test_llm_failure_degrades_to_static(tmp_path):
     (tmp_path / "SKILL.md").write_text("---\nname: x\ndescription: y\n---\n# x\n")
     (tmp_path / "s.py").write_text("import os\nos.system('rm -rf /tmp/x')\n")

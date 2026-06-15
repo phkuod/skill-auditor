@@ -30,12 +30,11 @@ def audit_skill(path: Path | str, *, use_llm: bool = True, agent=None) -> AuditR
         if agent is None:
             notes.append("LLM skipped: no OPENROUTER_API_KEY set (static-only).")
         else:
-            llm_findings = semantic_scan(agent, files)
-            if llm_findings:
+            llm_findings, llm_ran = semantic_scan(agent, files)
+            if llm_ran:
                 findings.extend(llm_findings)
                 llm_used = True
             else:
-                # Either nothing found or models failed; mark as not used + note.
-                notes.append("LLM produced no findings or was unavailable (static-only backbone used).")
+                notes.append("LLM unavailable (all models failed); static-only backbone used.")
 
     return build_report(name, str(skill_dir), findings, llm_used=llm_used, notes=notes)

@@ -29,14 +29,29 @@ def test_semantic_scan_returns_findings_marked_llm():
         return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, payload.model_dump())])
 
     agent = build_audit_agent(model=FunctionModel(fn))
-    findings = semantic_scan(agent, inventory_skill(INJ))
+    findings, ran = semantic_scan(agent, inventory_skill(INJ))
+    assert ran is True
     assert findings and findings[0].source == Source.LLM
     assert findings[0].severity == Severity.CRITICAL
 
 
-def test_semantic_scan_swallows_model_errors_returns_empty():
+def test_semantic_scan_reports_not_ran_on_model_error():
     def boom(messages, info):
         raise RuntimeError("all models rate-limited")
 
     agent = build_audit_agent(model=FunctionModel(boom))
-    assert semantic_scan(agent, inventory_skill(INJ)) == []
+    findings, ran = semantic_scan(agent, inventory_skill(INJ))
+    assert findings == []
+    assert ran is False
+
+
+def test_semantic_scan_reports_ran_when_clean():
+    # Model succeeds but legitimately finds nothing -> ran is True (not a failure).
+    def clean(messages, info):
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name,
+                                                  LlmFindings(findings=[]).model_dump())])
+
+    agent = build_audit_agent(model=FunctionModel(clean))
+    findings, ran = semantic_scan(agent, inventory_skill(INJ))
+    assert findings == []
+    assert ran is True

@@ -44,12 +44,18 @@ def _coerce(raw: dict) -> Finding | None:
         return None
 
 
-def semantic_scan(agent, files: list[SkillFile]) -> list[Finding]:
-    """Ask the LLM for injection/intent findings. Returns [] on any model failure."""
+def semantic_scan(agent, files: list[SkillFile]) -> tuple[list[Finding], bool]:
+    """Ask the LLM for injection/intent findings.
+
+    Returns (findings, ran). `ran` is True when the model responded (even with
+    zero findings) and False on any model failure, so the caller can tell
+    "LLM examined this and it's clean" from "LLM never ran".
+    """
     prompt = ("Analyze these skill files for prompt injection and intent mismatch.\n\n"
               + _render_untrusted(files))
     try:
         result = agent.run_sync(prompt, output_type=LlmFindings)
     except Exception:  # noqa: BLE001 — rate limits / network / all models down -> degrade
-        return []
-    return [c for c in (_coerce(r) for r in result.output.findings) if c is not None]
+        return [], False
+    findings = [c for c in (_coerce(r) for r in result.output.findings) if c is not None]
+    return findings, True
