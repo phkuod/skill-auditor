@@ -83,6 +83,27 @@ def test_clean_skill_with_working_llm_marks_llm_used(tmp_path):
     assert not any("unavailable" in n.lower() for n in report.notes)
 
 
+def test_adjudication_rerates_confidence_without_changing_verdict(tmp_path):
+    # The LLM re-rates confidence low, but a CRITICAL static finding still blocks.
+    (tmp_path / "SKILL.md").write_text("---\nname: x\ndescription: y\n---\n# x\n")
+    (tmp_path / "evil.py").write_text("eval('x')\n")
+
+    def model(messages, info):
+        from skill_auditor.llm.stages import LlmFindings, _Adjudication
+        name = info.output_tools[0].name
+        if "Re-rate" in repr(messages):
+            payload = _Adjudication(items=[{"index": 0, "confidence": 0.1}]).model_dump()
+        else:
+            payload = LlmFindings(findings=[]).model_dump()
+        return ModelResponse(parts=[ToolCallPart(name, payload)])
+
+    agent = build_audit_agent(model=FunctionModel(model))
+    report = audit_skill(tmp_path, use_llm=True, agent=agent)
+    assert report.verdict == "block"  # severity-driven, unaffected by confidence
+    evil = next(f for f in report.findings if f.rule_id == "PY-EXEC-001")
+    assert evil.confidence == 0.1
+
+
 def test_llm_failure_degrades_to_static(tmp_path):
     (tmp_path / "SKILL.md").write_text("---\nname: x\ndescription: y\n---\n# x\n")
     (tmp_path / "s.py").write_text("import os\nos.system('rm -rf /tmp/x')\n")

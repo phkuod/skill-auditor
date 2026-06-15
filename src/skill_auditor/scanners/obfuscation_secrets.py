@@ -11,7 +11,12 @@ from skill_auditor.models import Finding, Severity, Source
 # Zero-width space (U+200B), zero-width non-joiner (U+200C), zero-width joiner (U+200D),
 # word joiner (U+2060), and byte-order mark / zero-width no-break space (U+FEFF).
 ZERO_WIDTH = re.compile("[\u200b\u200c\u200d\u2060\ufeff]")
-B64_EXEC = re.compile(r"(b64decode|b16decode|unhexlify|decode\([\"']hex)", re.I)
+B64_EXEC = re.compile(r"(b64decode|b16decode|unhexlify|rot13|rot_13|decode\([\"']hex)", re.I)
+# Cyrillic (U+0400–04FF) / Greek (U+0370–03FF) letters used as Latin look-alikes.
+CONFUSABLE_SCRIPT = re.compile(r"[Ѐ-ӿͰ-Ͽ]")
+ASCII_LETTER = re.compile(r"[A-Za-z]")
+WORD = re.compile(r"\w+")
+MAX_LINE_LEN = 2000  # a single very long line usually means a minified/encoded blob
 SECRET_RULES = [
     ("OB-SECRET-AWS-001", re.compile(r"AKIA[0-9A-Z]{16}"), "Hardcoded AWS access key id"),
     ("OB-SECRET-GH-001", re.compile(r"ghp_[A-Za-z0-9]{36}"), "Hardcoded GitHub token"),
@@ -39,6 +44,19 @@ def scan(files: list[SkillFile]) -> list[Finding]:
                     severity=Severity.HIGH, title="Encoded payload decode", file=f.relpath, line=i,
                     evidence=line.strip()[:200], explanation="Decoding then executing data hides intent.",
                     remediation="Inspect the decoded payload; avoid runtime decode-execute.", source=Source.STATIC))
+            if CONFUSABLE_SCRIPT.search(line) and any(
+                    CONFUSABLE_SCRIPT.search(w) and ASCII_LETTER.search(w) for w in WORD.findall(line)):
+                findings.append(Finding(rule_id="OB-HOMOGLYPH-001", category="OBFUSCATION",
+                    severity=Severity.HIGH, title="Mixed-script homoglyph", file=f.relpath, line=i,
+                    evidence=line.strip()[:120],
+                    explanation="A token mixes Latin with look-alike Cyrillic/Greek letters to disguise an identifier or string.",
+                    remediation="Normalize to a single script and re-inspect the token.", source=Source.STATIC))
+            if f.kind in ("python", "shell") and len(line) > MAX_LINE_LEN:
+                findings.append(Finding(rule_id="OB-LONGLINE-001", category="OBFUSCATION",
+                    severity=Severity.MEDIUM, title="Abnormally long line", file=f.relpath, line=i,
+                    evidence=f"line is {len(line)} chars",
+                    explanation="A very long single line often hides a minified or encoded payload.",
+                    remediation="Inspect the line; decode and review any embedded blob.", source=Source.STATIC))
             for rid, rx, title in SECRET_RULES:
                 if rx.search(line):
                     findings.append(Finding(rule_id=rid, category="SECRETS", severity=Severity.HIGH,
