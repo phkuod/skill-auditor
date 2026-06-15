@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 API_KEY_ENV_VAR = "OPENROUTER_API_KEY"
 # Path-mode /audit is confined to this directory; unset => path mode disabled.
 ALLOWED_ROOT_ENV_VAR = "SKILL_AUDITOR_ALLOWED_ROOT"
+# Optional bearer token for the Web API; unset => no auth (localhost/internal only).
+API_TOKEN_ENV_VAR = "SKILL_AUDITOR_API_TOKEN"
 
 # Free OpenRouter endpoints that support tool calling, in fallback order.
 FREE_MODELS: tuple[str, ...] = (
@@ -30,3 +32,8 @@ def load_allowed_root() -> Path | None:
     """Resolved directory that path-mode /audit is confined to, or None if unset."""
     val = os.environ.get(ALLOWED_ROOT_ENV_VAR, "").strip()
     return Path(val).resolve() if val else None
+
+
+def load_api_token() -> str | None:
+    """Bearer token required by the Web API, or None when auth is disabled."""
+    return os.environ.get(API_TOKEN_ENV_VAR, "").strip() or None

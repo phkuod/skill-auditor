@@ -31,6 +31,9 @@ SKILL_AUDITOR_ALLOWED_ROOT=/srv/skills uv run uvicorn skill_auditor.api:app
 Path-mode returns 403 when `SKILL_AUDITOR_ALLOWED_ROOT` is unset or the requested
 path resolves outside it — so the unauthenticated API cannot read arbitrary host files.
 
+Optional auth: set `SKILL_AUDITOR_API_TOKEN` to require `Authorization: Bearer <token>`
+on `POST /audit` (`/health` and `/rules` stay open). Unset = no auth (localhost only).
+
 ## How it works
 Deterministic static scanners (regex + Python `ast`) form the backbone and always run.
 An optional, injection-hardened LLM stage adds semantic findings and degrades gracefully

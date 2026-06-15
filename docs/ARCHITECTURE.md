@@ -1,7 +1,7 @@
 # skill-auditor — 完整設計與架構（Design & Architecture）
 
 **版本**：v1（已實作，已合併 master）
-**狀態**：85 tests pass（1 skipped：symlink 測試需 OS 支援）· coverage 94% · 安全不變式（never executes audited code）已由最終審查確認
+**狀態**：91 tests pass（1 skipped：symlink 測試需 OS 支援）· coverage 95% · 安全不變式（never executes audited code）已由最終審查確認
 **相關文件**：設計規格 `docs/superpowers/specs/2026-06-13-skill-auditor-design.md`、實作計畫 `docs/superpowers/plans/2026-06-13-skill-auditor.md`、使用說明 `README.md`
 
 ---
@@ -309,6 +309,7 @@ python -m skill_auditor <skill 路徑> [--no-llm] [--json] [--fail-on critical|h
   - 或 multipart `.zip` 上傳（`?use_llm=...`）→ 解壓到暫存目錄、稽核後即刪。
   - 單一路由依 `Content-Type` 分流（見 §12 落差說明）。
   - **path-mode 限縮（防任意檔案讀取）**：path 稽核僅在設定 `SKILL_AUDITOR_ALLOWED_ROOT` 時開放，且路徑 `resolve()` 後必須落在該根目錄內；未設定或越界一律 `403`。沒有此防護時，無認證 API 可被指向 `~/.ssh` 等任意目錄並把內容當 evidence 回傳。
+  - **可選認證**：設 `SKILL_AUDITOR_API_TOKEN` 後，`POST /audit` 需帶 `Authorization: Bearer <token>`（constant-time 比對），否則 `401`；`/health`、`/rules` 維持開放。未設定則沿用 localhost/內網假設。
   - **不阻塞 event loop**：稽核（含 LLM 阻塞 I/O）以 `run_in_threadpool` 卸載，避免序列化並行請求。
   - **安全**：zip-slip 防護（解壓前以 Path 為基準檢查 `../`、絕對路徑）、檔案大小上限 `MAX_ZIP_BYTES=20MB`、檔數上限 `MAX_ZIP_ENTRIES=2000`、`BadZipFile` → 400。
 - `GET /health` → `{"status":"ok"}`；`GET /rules` → 全 `rule_id` 與說明。
@@ -351,6 +352,12 @@ python -m skill_auditor <skill 路徑> [--no-llm] [--json] [--fail-on critical|h
 - `adjudicate()` 逐項信心重評（advisory，見 §9）。
 - OBFUSCATION：homoglyph（`OB-HOMOGLYPH-001`）、異常長行（`OB-LONGLINE-001`）、rot13。
 
+**收尾（v1.4）**：
+- 可選 API token 認證（`SKILL_AUDITOR_API_TOKEN`，見 §10.2）。
+- `python_ast` 另抽取 markdown 內 ```python 圍欄區塊做 AST 掃描（行號正確；文件偽碼不報 PY-PARSE）。
+- `__main__` 進入點測試（覆蓋率 100%）。
+- 手動真實 skill E2E：14 個 superpowers skills，13 PASS、`brainstorming` 因 `rm -rf "$SESSION_DIR"` 正確 BLOCK，全程未執行 skill 程式碼。
+
 其餘（抗注入、優雅降級、verdict/exit 語意、zip-slip）皆與規格一致。
 
 ---
@@ -361,7 +368,7 @@ python -m skill_auditor <skill 路徑> [--no-llm] [--json] [--fail-on critical|h
 - 不自建排程器（交給 cron / CI / skill-manager）。
 - 不自動修改 skill（只給 `remediation` 建議，不 patch）。
 - 不做 web UI（v1 只有 API）。
-- API v1 不做認證（假設內網/localhost，明確註記為已知限制）。
+- API 預設不做認證（假設內網/localhost）；v1.4 起可選 `SKILL_AUDITOR_API_TOKEN` bearer token（見 §10.2）。
 
 ---
 
