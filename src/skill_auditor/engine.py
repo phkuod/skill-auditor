@@ -7,7 +7,7 @@ from pathlib import Path
 
 from skill_auditor.inventory import inventory_skill
 from skill_auditor.llm.agent import build_audit_agent, build_model
-from skill_auditor.llm.stages import semantic_scan
+from skill_auditor.llm.stages import semantic_scan, truncated_for_llm
 from skill_auditor.models import AuditReport
 from skill_auditor.report import build_report
 from skill_auditor.scanners import run_all
@@ -34,6 +34,11 @@ def audit_skill(path: Path | str, *, use_llm: bool = True, agent=None) -> AuditR
             if llm_ran:
                 findings.extend(llm_findings)
                 llm_used = True
+                truncated = truncated_for_llm(files)
+                if truncated:
+                    notes.append("LLM saw truncated content for "
+                                 f"{len(truncated)} file(s) ({', '.join(truncated)}); "
+                                 "review them manually.")
             else:
                 notes.append("LLM unavailable (all models failed); static-only backbone used.")
 

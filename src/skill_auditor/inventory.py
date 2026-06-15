@@ -3,12 +3,17 @@
 
 from __future__ import annotations
 
+import ast
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 EXCLUDED_DIRS = {".git", "__pycache__", ".venv", "node_modules", ".pytest_cache"}
 TEXT_KINDS = {"skill_md", "python", "shell", "markdown", "config"}
 MAX_TEXT_BYTES = 1_000_000
+
+_SHEBANG_PY = re.compile(r"^#!.*\bpython")
+_SHEBANG_SH = re.compile(r"^#!.*\b(?:bash|sh|zsh)\b")
 
 
 def classify(relpath: str) -> str:
@@ -33,17 +38,45 @@ class SkillFile:
     relpath: str      # posix-style, relative to skill root
     kind: str
     text: str | None  # None for binary/asset or unreadable
+    skip_reason: str | None = None  # set when a scannable file could NOT be fully read
 
 
-def _read_text(path: Path, kind: str) -> str | None:
+def _read_text(path: Path, kind: str) -> tuple[str | None, str | None]:
+    """Return (text, skip_reason). skip_reason is set only for scannable files
+    we failed to read fully — binary assets are intentional and not a gap."""
     if kind == "asset":
-        return None
+        return None, None
     try:
         if path.stat().st_size > MAX_TEXT_BYTES:
-            return None
-        return path.read_text(encoding="utf-8", errors="replace")
+            return None, "too_large"
+        return path.read_text(encoding="utf-8", errors="replace"), None
     except OSError:
-        return None
+        return None, "unreadable"
+
+
+def _sniff_executable(path: Path) -> tuple[str | None, str | None]:
+    """Detect code hiding behind a non-code extension (e.g. payload.py -> .txt).
+
+    Returns (kind, text) when the bytes are real source — a python/shell shebang
+    or text that parses as a Python module — else (None, None). Binary files fail
+    strict UTF-8 decode and stay assets, so they are never misclassified.
+    """
+    try:
+        if path.stat().st_size > MAX_TEXT_BYTES:
+            return None, None
+        raw = path.read_text(encoding="utf-8", errors="strict")
+    except (OSError, UnicodeDecodeError):
+        return None, None
+    first = raw.split("\n", 1)[0]
+    if _SHEBANG_PY.match(first):
+        return "python", raw
+    if _SHEBANG_SH.match(first):
+        return "shell", raw
+    try:
+        tree = ast.parse(raw)
+    except (SyntaxError, ValueError):
+        return None, None
+    return ("python", raw) if tree.body else (None, None)
 
 
 def inventory_skill(skill_dir: Path) -> list[SkillFile]:
@@ -57,5 +90,10 @@ def inventory_skill(skill_dir: Path) -> list[SkillFile]:
             continue
         relpath = rel.as_posix()
         kind = classify(relpath)
-        out.append(SkillFile(path=path, relpath=relpath, kind=kind, text=_read_text(path, kind)))
+        text, skip_reason = _read_text(path, kind)
+        if kind == "asset":
+            sniffed_kind, sniffed_text = _sniff_executable(path)
+            if sniffed_kind is not None:
+                kind, text = sniffed_kind, sniffed_text
+        out.append(SkillFile(path=path, relpath=relpath, kind=kind, text=text, skip_reason=skip_reason))
     return out

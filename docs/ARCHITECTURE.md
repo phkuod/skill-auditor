@@ -198,7 +198,7 @@ class AuditReport(BaseModel):
 
 ---
 
-## 7. 掃描器與規則型錄（系統核心，共 31 條靜態規則）
+## 7. 掃描器與規則型錄（系統核心，共 32 條靜態規則）
 
 每條規則有唯一 `rule_id`，由 `scanners.RULES` 統一登錄（供 `GET /rules` 查詢）。
 
@@ -213,6 +213,7 @@ class AuditReport(BaseModel):
 | `OVER_PERMISSION` | frontmatter | wildcard `allowed-tools`、auto-run `hooks` |
 | `OBFUSCATION` | obfuscation_secrets / python_ast | base64/hex decode→exec、零寬/不可見 unicode、無法 parse 的 Python |
 | `SECRETS` | obfuscation_secrets | 寫死 AWS/GitHub/OpenRouter key、通用憑證字面量 |
+| `AUDIT_COVERAGE` | coverage | 可掃描檔案因過大/無法讀取而**未被靜態分析**（消除「靜默略過 → 誤判 pass」的繞過面） |
 
 ### 規則清單
 
@@ -244,6 +245,7 @@ class AuditReport(BaseModel):
 | OB-SECRET-GH-001 | SECRETS | HIGH | `ghp_…` GitHub token |
 | OB-SECRET-OR-001 | SECRETS | HIGH | `sk-or-v1-…` OpenRouter key |
 | OB-SECRET-GENERIC-001 | SECRETS | HIGH | 通用 `password/secret/api_key = "…"` |
+| AUDIT-COVERAGE-001 | AUDIT_COVERAGE | MEDIUM | 可掃描檔案過大/無法讀取，未經靜態分析（避免靜默漏掃） |
 
 **為何 Python 用 `ast`**：AST 能準確辨識「呼叫了 `eval`」「`requests.post` 帶了檔案內容」這類語意，誤報遠低於字串比對。shell/markdown 無現成 AST，採規則式 + 啟發式。
 

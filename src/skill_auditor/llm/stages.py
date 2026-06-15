@@ -15,6 +15,16 @@ class LlmFindings(BaseModel):
     findings: list[dict]
 
 
+def truncated_for_llm(files: list[SkillFile]) -> list[str]:
+    """Relpaths of scannable files whose text is longer than the LLM sees.
+
+    Content past MAX_FILE_CHARS is cut from the prompt; the caller surfaces this
+    so a payload hidden past the cutoff is not silently un-reviewed by the LLM.
+    """
+    return [f.relpath for f in files
+            if f.text is not None and f.kind != "asset" and len(f.text) > MAX_FILE_CHARS]
+
+
 def _render_untrusted(files: list[SkillFile]) -> str:
     blocks = []
     for f in files:

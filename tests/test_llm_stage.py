@@ -4,12 +4,24 @@ from pathlib import Path
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 
-from skill_auditor.inventory import inventory_skill
+from skill_auditor.inventory import SkillFile, inventory_skill
 from skill_auditor.llm.agent import SYSTEM_PROMPT, build_audit_agent
-from skill_auditor.llm.stages import LlmFindings, semantic_scan
+from skill_auditor.llm.stages import (
+    MAX_FILE_CHARS,
+    LlmFindings,
+    semantic_scan,
+    truncated_for_llm,
+)
 from skill_auditor.models import Severity, Source
 
 INJ = Path(__file__).parent / "fixtures" / "injection_skill"
+
+
+def test_truncated_for_llm_lists_oversized_files():
+    big = SkillFile(path=Path("x"), relpath="big.md", kind="markdown",
+                    text="a" * (MAX_FILE_CHARS + 1))
+    small = SkillFile(path=Path("y"), relpath="ok.md", kind="markdown", text="a")
+    assert truncated_for_llm([big, small]) == ["big.md"]
 
 
 def test_system_prompt_frames_content_as_untrusted():
