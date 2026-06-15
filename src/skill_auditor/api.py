@@ -1,18 +1,20 @@
 # src/skill_auditor/api.py
-"""FastAPI adapter. v1 has no auth — deploy on localhost/internal only."""
+"""FastAPI adapter. Auth is optional (set SKILL_AUDITOR_API_TOKEN); otherwise
+deploy on localhost/internal only."""
 
 from __future__ import annotations
 
 import io
+import secrets
 import tempfile
 import zipfile
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from skill_auditor.config import ALLOWED_ROOT_ENV_VAR, load_allowed_root
+from skill_auditor.config import ALLOWED_ROOT_ENV_VAR, load_allowed_root, load_api_token
 from skill_auditor.engine import audit_skill
 from skill_auditor.scanners import RULES
 
@@ -37,6 +39,17 @@ def rules() -> dict:
     return {"rules": RULES}
 
 
+def _check_token(request: Request) -> None:
+    """Require a bearer token on /audit when SKILL_AUDITOR_API_TOKEN is set; no-op otherwise."""
+    token = load_api_token()
+    if token is None:
+        return
+    auth = request.headers.get("authorization", "")
+    presented = auth[7:] if auth[:7].lower() == "bearer " else ""
+    if not (presented and secrets.compare_digest(presented, token)):
+        raise HTTPException(status_code=401, detail="missing or invalid API token")
+
+
 def _safe_extract(zf: zipfile.ZipFile, dest: Path) -> None:
     names = zf.namelist()
     if len(names) > MAX_ZIP_ENTRIES:
@@ -50,7 +63,7 @@ def _safe_extract(zf: zipfile.ZipFile, dest: Path) -> None:
 
 
 @app.post("/audit")
-async def audit(request: Request, use_llm: bool = True) -> dict:
+async def audit(request: Request, use_llm: bool = True, _: None = Depends(_check_token)) -> dict:
     content_type = request.headers.get("content-type", "")
 
     if content_type.startswith("multipart/form-data"):

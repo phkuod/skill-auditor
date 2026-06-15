@@ -64,3 +64,25 @@ def test_zip_slip_is_rejected():
                     files={"file": ("evil.zip", buf.getvalue(), "application/zip")})
     assert r.status_code == 400
     assert "unsafe" in r.json()["detail"].lower()
+
+
+def test_audit_requires_token_when_configured(monkeypatch):
+    monkeypatch.setenv("SKILL_AUDITOR_API_TOKEN", "s3cret")
+    data = _zip_of(FIX / "clean_skill")
+    r = client.post("/audit?use_llm=false", files={"file": ("c.zip", data, "application/zip")})
+    assert r.status_code == 401
+
+
+def test_audit_accepts_correct_token(monkeypatch):
+    monkeypatch.setenv("SKILL_AUDITOR_API_TOKEN", "s3cret")
+    data = _zip_of(FIX / "clean_skill")
+    r = client.post("/audit?use_llm=false", files={"file": ("c.zip", data, "application/zip")},
+                    headers={"Authorization": "Bearer s3cret"})
+    assert r.status_code == 200
+
+
+def test_audit_open_when_token_unset(monkeypatch):
+    monkeypatch.delenv("SKILL_AUDITOR_API_TOKEN", raising=False)
+    data = _zip_of(FIX / "clean_skill")
+    r = client.post("/audit?use_llm=false", files={"file": ("c.zip", data, "application/zip")})
+    assert r.status_code == 200
