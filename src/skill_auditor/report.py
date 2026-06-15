@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from rich.console import Console
 
-from skill_auditor.models import AuditReport, Finding, Severity
+from skill_auditor.models import AuditReport, Finding, Severity, Source
 
 SEVERITY_ORDER = [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW, Severity.INFO]
 SEVERITY_COLOR = {
@@ -31,8 +31,32 @@ def count_by_severity(findings: list[Finding]) -> dict[str, int]:
     return counts
 
 
+def dedupe_findings(findings: list[Finding]) -> list[Finding]:
+    """Drop exact duplicates and LLM findings that restate a static finding.
+
+    Static findings (confidence 1.0) win: an LLM finding for the same
+    (file, category) is dropped when its line is unset or matches a static
+    finding at that file/category — preventing double-counting in the verdict.
+    """
+    static_fc = {(f.file, f.category) for f in findings if f.source == Source.STATIC}
+    static_keys = {(f.file, f.category, f.line) for f in findings if f.source == Source.STATIC}
+    out: list[Finding] = []
+    seen: set = set()
+    for f in findings:
+        if f.source == Source.LLM and (f.file, f.category) in static_fc:
+            if f.line is None or (f.file, f.category, f.line) in static_keys:
+                continue
+        key = (f.source, f.rule_id, f.file, f.line, f.category, f.severity)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(f)
+    return out
+
+
 def build_report(skill_name: str, skill_path: str, findings: list[Finding], *,
                  llm_used: bool, notes: list[str]) -> AuditReport:
+    findings = dedupe_findings(findings)
     return AuditReport(skill_name=skill_name, skill_path=skill_path,
         verdict=compute_verdict(findings),
         findings=sorted(findings, key=lambda f: SEVERITY_ORDER.index(f.severity)),
