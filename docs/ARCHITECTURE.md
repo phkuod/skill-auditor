@@ -297,6 +297,7 @@ python -m skill_auditor <skill 路徑> [--no-llm] [--json] [--fail-on critical|h
   - JSON body `{"path": "...", "use_llm": false}` → 稽核本地目錄（非目錄回 404）。
   - 或 multipart `.zip` 上傳（`?use_llm=...`）→ 解壓到暫存目錄、稽核後即刪。
   - 單一路由依 `Content-Type` 分流（見 §12 落差說明）。
+  - **path-mode 限縮（防任意檔案讀取）**：path 稽核僅在設定 `SKILL_AUDITOR_ALLOWED_ROOT` 時開放，且路徑 `resolve()` 後必須落在該根目錄內；未設定或越界一律 `403`。沒有此防護時，無認證 API 可被指向 `~/.ssh` 等任意目錄並把內容當 evidence 回傳。
   - **安全**：zip-slip 防護（解壓前以 Path 為基準檢查 `../`、絕對路徑）、檔案大小上限 `MAX_ZIP_BYTES=20MB`、檔數上限 `MAX_ZIP_ENTRIES=2000`、`BadZipFile` → 400。
 - `GET /health` → `{"status":"ok"}`；`GET /rules` → 全 `rule_id` 與說明。
 - 互動文件自動掛在 `/docs`。

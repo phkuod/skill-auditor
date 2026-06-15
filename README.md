@@ -20,10 +20,16 @@ Exit codes: pass=0, warn=1, block=2 (tune with `--fail-on`).
 
 ## Web API (no auth — localhost/internal only)
 ```bash
+# Zip upload works out of the box:
 uv run uvicorn skill_auditor.api:app
-# POST /audit  {"path": "...", "use_llm": false}  OR  multipart zip upload
-# GET  /rules  ·  GET /health
+# POST /audit  (multipart zip upload)  ·  GET /rules  ·  GET /health
+
+# Path-mode auditing is OFF unless you confine it to a directory:
+SKILL_AUDITOR_ALLOWED_ROOT=/srv/skills uv run uvicorn skill_auditor.api:app
+# POST /audit  {"path": "/srv/skills/foo", "use_llm": false}
 ```
+Path-mode returns 403 when `SKILL_AUDITOR_ALLOWED_ROOT` is unset or the requested
+path resolves outside it — so the unauthenticated API cannot read arbitrary host files.
 
 ## How it works
 Deterministic static scanners (regex + Python `ast`) form the backbone and always run.
